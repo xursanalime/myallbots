@@ -9,4 +9,4 @@ crons = ["*/5 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "allbot-db"
-database_id = "PLACEHOLDER_DB_ID"
+database_id = "cbf15283-7326-4b7f-89a1-908e30e2aa66"
