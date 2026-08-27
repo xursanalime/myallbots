@@ -1,7 +1,7 @@
 import { chatCompletion } from './openrouter';
 
-const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-latest';
-const WEEKLY_MODEL = 'deepseek/deepseek-v4-flash-latest';
+const DEFAULT_MODEL = '~deepseek/deepseek-v4-flash-latest';
+const WEEKLY_MODEL = '~deepseek/deepseek-v4-flash-latest';
 
 export async function generateDailyAnalysis(
   apiKey: string,

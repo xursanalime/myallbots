@@ -34,11 +34,16 @@ export async function chatCompletion(
     
     clearTimeout(timeout);
     
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('OpenRouter error status:', response.status, errText);
+      return null;
+    }
     
     const data = await response.json() as any;
     return data?.choices?.[0]?.message?.content ?? null;
-  } catch {
+  } catch (e) {
+    console.error('OpenRouter fetch exception:', e);
     return null;
   }
 }
