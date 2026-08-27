@@ -15,12 +15,25 @@ export default {
     }
     
     if (url.pathname === '/set-webhook') {
+      if (!env.BOT_TOKEN) {
+        return new Response(JSON.stringify({
+          error: "BOT_TOKEN is missing or empty in environment variables",
+          hint: "Cloudflare dagi Settings -> Variables bo'limini tekshiring"
+        }, null, 2), { headers: { 'Content-Type': 'application/json' } });
+      }
       const webhookUrl = url.searchParams.get('url') || `${url.origin}/webhook`;
       const secret = url.searchParams.get('secret') || '';
-      const res = await fetch(
-        `https://api.telegram.org/bot${env.BOT_TOKEN}/setWebhook?url=${encodeURIComponent(webhookUrl)}&secret_token=${encodeURIComponent(secret)}&max_connections=40&drop_pending_updates=true`
-      );
-      return new Response(JSON.stringify(await res.json(), null, 2), {
+      const telegramUrl = `https://api.telegram.org/bot${env.BOT_TOKEN}/setWebhook?url=${encodeURIComponent(webhookUrl)}&secret_token=${encodeURIComponent(secret)}&max_connections=40&drop_pending_updates=true`;
+      
+      const res = await fetch(telegramUrl);
+      const data = await res.json() as any;
+      
+      // Qo'shimcha debug uchun
+      if (!data.ok) {
+        data._debug_url_prefix = `https://api.telegram.org/bot...${env.BOT_TOKEN.slice(-4)}/setWebhook`;
+      }
+      
+      return new Response(JSON.stringify(data, null, 2), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
