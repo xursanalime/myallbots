@@ -1,6 +1,6 @@
 import { Env, Session, TelegramMessage, TelegramCallbackQuery } from '../types';
 import { sendMessage, inlineKeyboard, answerCallbackQuery } from '../telegram';
-import { generateFreeResponse } from './analysis';
+import { generateFreeResponse, buildFullUserContext } from './analysis';
 
 export async function handleAiMessage(env: Env, session: Session, msg: TelegramMessage): Promise<boolean> {
   if (session.userState !== 'ai_chat') return false;
@@ -8,7 +8,7 @@ export async function handleAiMessage(env: Env, session: Session, msg: TelegramM
   const chatId = msg.chat.id;
   const text = msg.text ?? '';
 
-  if (text === '\ud83d\udd19 Ortga' || text === '\ud83d\udd19 Asosiy menyu') {
+  if (text.includes('Ortga') || text.includes('Asosiy menyu')) {
     session.userState = null;
     await showAiMenu(env, chatId, chatId);
     return true;
@@ -17,7 +17,8 @@ export async function handleAiMessage(env: Env, session: Session, msg: TelegramM
   await sendMessage(env, chatId, "\u23f3 O'ylanmoqdaman...");
 
   const userName = msg.from?.first_name || 'Foydalanuvchi';
-  const res = await generateFreeResponse(env.OPENROUTER_API_KEY, userName, text, [], {});
+  const userContext = await buildFullUserContext(env, chatId, userName);
+  const res = await generateFreeResponse(env.OPENROUTER_API_KEY, userName, text, userContext);
 
   if (res) {
     await sendMessage(env, chatId, res);
