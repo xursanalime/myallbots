@@ -78,7 +78,7 @@ export async function getHabitStats(db: D1Database, userId: number, startDate: s
   // Per habit logic
   const perHabit: HabitProgress[] = [];
   const { results: activeHabits } = await db.prepare(
-    `SELECT * FROM habits WHERE user_id = ? AND is_active = 1`
+    `SELECT * FROM habits WHERE user_id = ? AND active = 1`
   ).bind(userId).all<HabitRow>();
 
   if (activeHabits) {

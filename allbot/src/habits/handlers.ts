@@ -11,18 +11,18 @@ export async function handleHabitMessage(env: Env, session: Session, msg: Telegr
   if (!userId) return false;
   const text = msg.text || '';
 
-  if (text === '📋 Bugungi vazifalar') {
+  if (text.includes('Bugungi vazifalar')) {
     await showTodayTasks(env, chatId, userId);
     return true;
   }
 
-  if (text === '➕ Yangi odat') {
+  if (text.includes('Yangi odat')) {
     await startHabitCreation(env, session, chatId);
     return true;
   }
   
-  if (text === '📊 Statistika') {
-    const user = await env.DB.prepare('SELECT start_date FROM users WHERE id = ?').bind(userId).first<{start_date: string}>();
+  if (text.includes('Statistika')) {
+    const user = await env.DB.prepare('SELECT start_date FROM users WHERE user_id = ?').bind(userId).first<{start_date: string}>();
     if (user && user.start_date) {
       const stats = await getHabitStats(env.DB, userId, user.start_date);
       await sendMessage(env, chatId, formatStatsMessage(stats));

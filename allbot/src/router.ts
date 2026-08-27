@@ -65,7 +65,7 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
   }
 
   // 🔙 Asosiy menyu — return from any submodule
-  if (text === '\ud83d\udd19 Asosiy menyu') {
+  if (text.includes('Asosiy menyu')) {
     session.userState = null;
     session.quizState = null;
     await sendMessage(env, chatId, '\ud83c\udfe0 *Asosiy menyu*', { replyMarkup: mainMenu() });
@@ -73,12 +73,12 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
   }
 
   // Main menu buttons
-  if (text === '\ud83d\udccb Bugungi vazifalar' || text === '\u2795 Yangi odat') {
+  if (text.includes('Bugungi vazifalar') || text.includes('Yangi odat')) {
     session.quizState = null;
     if (await handleHabitMessage(env, session, msg)) return;
   }
 
-  if (text === "\ud83d\udcda Lug'at") {
+  if (text.includes("Lug'at") || text.includes("Lug‘at") || text.includes("Lug`at")) {
     session.userState = null;
     session.quizState = null;
     await registerUser(env.DB, uid, firstName || null);
@@ -86,21 +86,21 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
     return;
   }
 
-  if (text === '\ud83d\udcca Statistika') {
+  if (text.includes('Statistika')) {
     session.userState = null;
     session.quizState = null;
     await showCombinedStats(env, chatId, uid);
     return;
   }
 
-  if (text === '\ud83e\udd16 AI yordamchi') {
+  if (text.includes('AI yordamchi')) {
     session.userState = null;
     session.quizState = null;
     await showAiMenu(env, chatId, uid);
     return;
   }
 
-  if (text === '\u2699\ufe0f Sozlamalar') {
+  if (text.includes('Sozlamalar')) {
     session.userState = null;
     session.quizState = null;
     await showSettings(env, chatId, uid);

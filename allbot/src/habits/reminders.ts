@@ -34,7 +34,7 @@ async function sendMorningMessages(env: Env, currentDate: string): Promise<void>
     
     // Quick query to get count
     const { results } = await env.DB.prepare(
-      `SELECT count(*) as cnt FROM habits WHERE user_id = ? AND is_active = 1`
+      `SELECT count(*) as cnt FROM habits WHERE user_id = ? AND active = 1`
     ).bind(user.user_id).all<{cnt: number}>();
     
     const habitCount = results && results.length > 0 ? results[0].cnt : 0;
@@ -55,7 +55,7 @@ async function sendEveningMessages(env: Env, currentDate: string): Promise<void>
     const { results: pendingHabits } = await env.DB.prepare(
       `SELECT h.name FROM habits h 
        LEFT JOIN habit_logs hl ON h.id = hl.habit_id AND hl.date = ? 
-       WHERE h.user_id = ? AND h.is_active = 1 
+       WHERE h.user_id = ? AND h.active = 1 
          AND (hl.status IS NULL OR hl.status = 'pending' OR hl.status = 'later')`
     ).bind(currentDate, user.user_id).all<{name: string}>();
     

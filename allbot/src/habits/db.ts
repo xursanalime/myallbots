@@ -2,7 +2,7 @@ import { Env, HabitRow, HabitLogRow, HabitStatus, DailyScoreRow } from '../types
 
 export async function createHabit(db: D1Database, userId: number, name: string, reminderTime?: string | null, minimumText?: string | null, ifThenPlan?: string | null): Promise<number> {
   const result = await db.prepare(
-    `INSERT INTO habits (user_id, name, reminder_time, minimum_text, if_then_plan) 
+    `INSERT INTO habits (user_id, name, reminder_time, minimum_version_text, if_then_plan) 
      VALUES (?, ?, ?, ?, ?) RETURNING id`
   ).bind(userId, name, reminderTime || null, minimumText || null, ifThenPlan || null).first();
   return result?.id as number;
@@ -10,14 +10,14 @@ export async function createHabit(db: D1Database, userId: number, name: string, 
 
 export async function getActiveHabits(db: D1Database, userId: number): Promise<HabitRow[]> {
   const { results } = await db.prepare(
-    `SELECT * FROM habits WHERE user_id = ? AND is_active = 1 ORDER BY created_at ASC`
+    `SELECT * FROM habits WHERE user_id = ? AND active = 1 ORDER BY created_at ASC`
   ).bind(userId).all<HabitRow>();
   return results || [];
 }
 
 export async function deactivateHabit(db: D1Database, habitId: number, userId: number): Promise<boolean> {
   const result = await db.prepare(
-    `UPDATE habits SET is_active = 0 WHERE id = ? AND user_id = ?`
+    `UPDATE habits SET active = 0 WHERE id = ? AND user_id = ?`
   ).bind(habitId, userId).run();
   return result.success;
 }
@@ -28,7 +28,7 @@ export async function logHabit(db: D1Database, habitId: number, date: string, st
      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
      ON CONFLICT(habit_id, date) DO UPDATE SET 
      status = excluded.status, 
-     note = excluded.note,
+     note = excluded.note, 
      logged_at = CURRENT_TIMESTAMP`
   ).bind(habitId, date, status, note || null).run();
 }
@@ -40,7 +40,7 @@ export async function getHabitLogsForDate(db: D1Database, userId: number, date: 
             hl.note as log_note 
      FROM habits h 
      LEFT JOIN habit_logs hl ON h.id = hl.habit_id AND hl.date = ? 
-     WHERE h.user_id = ? AND h.is_active = 1 
+     WHERE h.user_id = ? AND h.active = 1 
      ORDER BY h.created_at ASC`
   ).bind(date, userId).all<HabitRow & { status: HabitStatus; log_note: string | null }>();
   return results || [];
@@ -49,7 +49,7 @@ export async function getHabitLogsForDate(db: D1Database, userId: number, date: 
 export async function getHabitHistory(db: D1Database, habitId: number, days: number): Promise<HabitLogRow[]> {
   const { results } = await db.prepare(
     `SELECT * FROM habit_logs 
-     WHERE habit_id = ? AND date >= date('now', '-' || ? || ' days')
+     WHERE habit_id = ? AND date >= date('now', '-' || ? || ' days') 
      ORDER BY date DESC`
   ).bind(habitId, days).all<HabitLogRow>();
   return results || [];
@@ -60,7 +60,7 @@ export async function calculateAndSaveDailyScore(db: D1Database, userId: number,
   const habitCount = logs.length;
   
   if (habitCount === 0) {
-    const defaultScore = {
+    const defaultScore: DailyScoreRow = {
       user_id: userId,
       date: date,
       total_score: 0,
@@ -70,15 +70,14 @@ export async function calculateAndSaveDailyScore(db: D1Database, userId: number,
       streak_count: 0
     };
     await db.prepare(
-      `INSERT INTO daily_scores (user_id, date, total_score, habit_count, is_success_day, is_full_day, streak_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO daily_scores (user_id, date, total_score, is_success_day, is_full_day, streak_count)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id, date) DO UPDATE SET
        total_score = excluded.total_score,
-       habit_count = excluded.habit_count,
        is_success_day = excluded.is_success_day,
        is_full_day = excluded.is_full_day,
        streak_count = excluded.streak_count`
-    ).bind(userId, date, 0, 0, 0, 0, 0).run();
+    ).bind(userId, date, 0, 0, 0, 0).run();
     return defaultScore;
   }
 
@@ -115,30 +114,28 @@ export async function calculateAndSaveDailyScore(db: D1Database, userId: number,
   };
 
   await db.prepare(
-    `INSERT INTO daily_scores (user_id, date, total_score, habit_count, is_success_day, is_full_day, streak_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO daily_scores (user_id, date, total_score, is_success_day, is_full_day, streak_count)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, date) DO UPDATE SET
      total_score = excluded.total_score,
-     habit_count = excluded.habit_count,
      is_success_day = excluded.is_success_day,
      is_full_day = excluded.is_full_day,
      streak_count = excluded.streak_count`
   ).bind(
-    userId, date, totalScore, habitCount, isSuccessDay, isFullDay, streakCount
+    userId, date, totalScore, isSuccessDay, isFullDay, streakCount
   ).run();
 
   return scoreObj;
 }
 
 export async function getHabitsNeedingReminder(db: D1Database, currentTime: string): Promise<Array<HabitRow & { first_name: string | null }>> {
-  // currentTime is HH:MM
   const { results } = await db.prepare(
     `SELECT h.*, u.first_name 
      FROM habits h 
-     JOIN users u ON h.user_id = u.id 
-     WHERE h.is_active = 1 
+     JOIN users u ON h.user_id = u.user_id 
+     WHERE h.active = 1 
        AND u.notify = 1 
-       AND h.reminder_time = ?
+       AND h.reminder_time = ? 
        AND NOT EXISTS (
          SELECT 1 FROM habit_logs hl 
          WHERE hl.habit_id = h.id 
@@ -155,8 +152,8 @@ export async function getHabitsForLaterReminder(db: D1Database, date: string): P
     `SELECT h.id as habit_id, h.user_id, h.name as habit_name, u.first_name 
      FROM habits h 
      JOIN habit_logs hl ON h.id = hl.habit_id 
-     JOIN users u ON h.user_id = u.id 
-     WHERE h.is_active = 1 
+     JOIN users u ON h.user_id = u.user_id 
+     WHERE h.active = 1 
        AND u.notify = 1 
        AND hl.date = ? 
        AND hl.status = 'later' 
@@ -168,7 +165,7 @@ export async function getHabitsForLaterReminder(db: D1Database, date: string): P
 
 export async function getUsersForTimeMessage(db: D1Database): Promise<Array<{user_id: number; first_name: string | null; start_date: string | null}>> {
   const { results } = await db.prepare(
-    `SELECT id as user_id, first_name, start_date 
+    `SELECT user_id, first_name, start_date 
      FROM users 
      WHERE notify = 1 AND start_date IS NOT NULL`
   ).bind().all<{user_id: number; first_name: string | null; start_date: string | null}>();
