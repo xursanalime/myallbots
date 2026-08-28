@@ -74,16 +74,44 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
       const date = parts[2];
       let status: 'done' | 'minimum' | 'skipped' | 'later' = 'done';
       if (action === 'h_min') status = 'minimum';
-      if (action === 'h_skip') status = 'skipped';
+      if (action === 'h_skip') status = 'skipped';;
       if (action === 'h_later') status = 'later';
 
       await logHabit(env.DB, habitId, date, status);
       await calculateAndSaveDailyScore(env.DB, userId, date);
       
-      await answerCallbackQuery(env, cq.id, "Holat saqlandi!");
+      const statusLabels: Record<string, string> = {
+        done: "✅ Bajarildi!", minimum: "🟡 Minimum bajardi!", 
+        skipped: "⏭ O'tkazildi", later: "⏰ Keyinroq eslatiladi"
+      };
+      await answerCallbackQuery(env, cq.id, statusLabels[status] || "Saqlandi");
       
-      // Update the message inline keyboard
+      // Return to compact list
       await showTodayTasks(env, chatId, userId, cq.message?.message_id);
+      return true;
+    }
+
+    if (action === 'h_select') {
+      const habitId = parseInt(parts[1], 10);
+      const date = parts[2];
+      // Find habit name & current status from DB
+      const row = await env.DB.prepare(
+        `SELECT h.name, COALESCE(hl.status, 'pending') as status 
+         FROM habits h 
+         LEFT JOIN habit_logs hl ON h.id = hl.habit_id AND hl.date = ?
+         WHERE h.id = ?`
+      ).bind(date, habitId).first<{name: string; status: string}>();
+      
+      if (row) {
+        await showHabitActions(env, chatId, habitId, row.name, row.status, date, cq.message?.message_id);
+      }
+      await answerCallbackQuery(env, cq.id);
+      return true;
+    }
+
+    if (action === 'h_back') {
+      await showTodayTasks(env, chatId, userId, cq.message?.message_id);
+      await answerCallbackQuery(env, cq.id);
       return true;
     }
 
@@ -208,7 +236,7 @@ async function showTodayTasks(env: Env, chatId: number, userId: number, messageI
   const tasks = await getHabitLogsForDate(env.DB, userId, date);
   
   if (tasks.length === 0) {
-    const text = "Bugun uchun vazifalar yo'q. Yangi odat qo'shish uchun '➕ Yangi odat' tugmasini bosing.";
+    const text = "Bugun uchun vazifalar yo'q.\n\n➕ *Yangi odat* tugmasi orqali birinchi odatingizni qo'shing!";
     if (messageId) {
       await editMessageText(env, chatId, messageId, text);
     } else {
@@ -217,36 +245,73 @@ async function showTodayTasks(env: Env, chatId: number, userId: number, messageI
     return;
   }
 
-  let text = `📋 *Bugungi vazifalar (${date})*\n\n`;
-  const keyboard: any[] = [];
-
   const icons: Record<string, string> = {
-    'done': '✅',
-    'minimum': '🟡',
-    'skipped': '⏭',
-    'later': '⏰',
-    'pending': '⬜'
+    'done': '✅', 'minimum': '🟡', 'skipped': '⏭', 'later': '⏰', 'pending': '⬜'
   };
 
-  tasks.forEach((task, index) => {
-    const statusIcon = icons[task.status] || '⬜';
-    text += `${index + 1}. ${statusIcon} *${task.name}*\n`;
-    if (task.if_then_plan) {
-      text += `   _Agar-Unda:_ ${task.if_then_plan}\n`;
-    }
-    
-    keyboard.push([
-      { text: `✅ Bajarildi`, callback_data: `h_done:${task.id}:${date}` },
-      { text: `🟡 Minimum`, callback_data: `h_min:${task.id}:${date}` }
-    ]);
-    keyboard.push([
-      { text: `⏭ O'tkazish`, callback_data: `h_skip:${task.id}:${date}` },
-      { text: `⏰ Keyinroq`, callback_data: `h_later:${task.id}:${date}` }
-    ]);
+  // Count stats
+  const done = tasks.filter(t => t.status === 'done' || t.status === 'minimum').length;
+  const total = tasks.length;
+  const progressBar = buildProgressBar(done, total);
+
+  let text = `📋 *Bugungi vazifalar* — ${date}\n`;
+  text += `${progressBar} ${done}/${total}\n\n`;
+
+  tasks.forEach((task, i) => {
+    const icon = icons[task.status] || '⬜';
+    text += `${icon} ${task.name}\n`;
   });
 
-  keyboard.push([{ text: `🔄 Yangilash`, callback_data: `h_refresh` }]);
-  keyboard.push([{ text: `⚙️ Boshqarish`, callback_data: `h_manage` }]);
+  text += `\n_Odat nomini bosib holatini o'zgartiring_ 👇`;
+
+  // ONE button per habit — compact!
+  const keyboard: any[] = tasks.map(task => {
+    const icon = icons[task.status] || '⬜';
+    const isDone = task.status === 'done' || task.status === 'minimum';
+    return [{ 
+      text: `${icon} ${task.name}${isDone ? ' ✓' : ''}`, 
+      callback_data: `h_select:${task.id}:${date}` 
+    }];
+  });
+
+  keyboard.push([
+    { text: `🔄 Yangilash`, callback_data: `h_refresh` },
+    { text: `⚙️ Boshqarish`, callback_data: `h_manage` }
+  ]);
+
+  if (messageId) {
+    await editMessageText(env, chatId, messageId, text, { replyMarkup: { inline_keyboard: keyboard } });
+  } else {
+    await sendMessage(env, chatId, text, { replyMarkup: { inline_keyboard: keyboard } });
+  }
+}
+
+function buildProgressBar(done: number, total: number): string {
+  const filled = Math.round((done / total) * 8);
+  return '█'.repeat(filled) + '░'.repeat(8 - filled);
+}
+
+async function showHabitActions(env: Env, chatId: number, habitId: number, habitName: string, currentStatus: string, date: string, messageId?: number): Promise<void> {
+  const icons: Record<string, string> = {
+    'done': '✅', 'minimum': '🟡', 'skipped': '⏭', 'later': '⏰', 'pending': '⬜'
+  };
+  const icon = icons[currentStatus] || '⬜';
+
+  const text = `${icon} *${habitName}*\n\nHolatni tanlang:`;
+
+  const keyboard = [
+    [
+      { text: `✅ Bajarildi`, callback_data: `h_done:${habitId}:${date}` },
+      { text: `🟡 Minimum`, callback_data: `h_min:${habitId}:${date}` }
+    ],
+    [
+      { text: `⏭ O'tkazish`, callback_data: `h_skip:${habitId}:${date}` },
+      { text: `⏰ Keyinroq`, callback_data: `h_later:${habitId}:${date}` }
+    ],
+    [
+      { text: `◀️ Orqaga`, callback_data: `h_back` }
+    ]
+  ];
 
   if (messageId) {
     await editMessageText(env, chatId, messageId, text, { replyMarkup: { inline_keyboard: keyboard } });
