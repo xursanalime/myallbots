@@ -41,6 +41,10 @@ export async function handleHabitMessage(env: Env, session: Session, msg: Telegr
       await handleHabitTimeInput(env, session, chatId, text);
       return true;
     }
+    if (state.mode === 'habit_time_custom') {
+      await handleHabitTimeInput(env, session, chatId, text);
+      return true;
+    }
     if (state.mode === 'habit_minimum') {
       await handleHabitMinimumInput(env, session, chatId, text);
       return true;
@@ -98,6 +102,16 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
         });
       }
       await answerCallbackQuery(env, cq.id);
+      return true;
+    }
+
+    if (action === 'h_time_custom') {
+      if (state && typeof state === 'object' && state.mode === 'habit_time') {
+        state.mode = 'habit_time_custom';
+        session.userState = state;
+        await sendMessage(env, chatId, "✏️ O'zingiz xohlagan vaqtni kiriting:\n\n*Format:* `HH:MM`\nMasalan: `06:30`, `14:00`, `22:30`");
+      }
+      await answerCallbackQuery(env, cq.id, "Vaqtni kiriting (HH:MM)");
       return true;
     }
 
@@ -248,12 +262,12 @@ async function startHabitCreation(env: Env, session: Session, chatId: number): P
 
 async function handleHabitNameInput(env: Env, session: Session, chatId: number, userId: number, text: string): Promise<void> {
   session.userState = { mode: 'habit_time', name: text };
-  await sendMessage(env, chatId, "Odat uchun eslatma vaqtini kiriting (HH:MM formatida):\n(Yoki quyidagi tugmalardan birini tanlang)", {
+  await sendMessage(env, chatId, "⏰ Odat uchun eslatma vaqtini tanlang yoki o'zingiz kiriting:", {
     replyMarkup: {
       inline_keyboard: [
         [{ text: "05:30", callback_data: 'h_time:05:30' }, { text: "07:00", callback_data: 'h_time:07:00' }, { text: "09:00", callback_data: 'h_time:09:00' }],
         [{ text: "12:00", callback_data: 'h_time:12:00' }, { text: "18:00", callback_data: 'h_time:18:00' }, { text: "21:00", callback_data: 'h_time:21:00' }],
-        [{ text: "O'tkazish", callback_data: 'h_time_skip' }]
+        [{ text: "✏️ Boshqa vaqt", callback_data: 'h_time_custom' }, { text: "⏭ O'tkazish", callback_data: 'h_time_skip' }]
       ]
     }
   });
