@@ -17,7 +17,9 @@ export const USER_COLUMNS = [
   ["last_weekly_summary_at", "TEXT"],
   ['ai_enabled', 'INTEGER DEFAULT 0'],
   ['timezone', "TEXT DEFAULT '+05:00'"],
-  ['start_date', 'TEXT']
+  ['start_date', 'TEXT'],
+  ['last_morning_date', 'TEXT'],
+  ['last_evening_date', 'TEXT']
 ];
 
 export async function ensureUserColumns(db: D1Database) {
@@ -27,6 +29,14 @@ export async function ensureUserColumns(db: D1Database) {
     if (!existing.has(name)) {
       await db.prepare(`ALTER TABLE users ADD COLUMN ${name} ${ddl}`).run();
     }
+  }
+}
+
+export async function ensureHabitColumns(db: D1Database) {
+  const { results } = await db.prepare("PRAGMA table_info(habits)").all();
+  const existing = new Set((results ?? []).map((r: any) => r.name));
+  if (!existing.has('last_reminded_date')) {
+    await db.prepare("ALTER TABLE habits ADD COLUMN last_reminded_date TEXT").run();
   }
 }
 
@@ -85,6 +95,7 @@ export async function initSchema(db: D1Database) {
   ];
   await db.batch(statements.map((s) => db.prepare(s)));
   await ensureUserColumns(db);
+  await ensureHabitColumns(db);
   schemaReady = true;
 }
 
@@ -250,8 +261,10 @@ export async function stats(db: D1Database, uid: number): Promise<{ total: numbe
 
 export async function registerUser(db: D1Database, uid: number, firstName: string | null): Promise<void> {
   await db.prepare(
-    `INSERT INTO users (user_id, first_name) VALUES (?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET first_name=excluded.first_name`
+    `INSERT INTO users (user_id, first_name, start_date) VALUES (?, ?, date('now', '+5 hours'))
+       ON CONFLICT(user_id) DO UPDATE SET 
+       first_name=COALESCE(excluded.first_name, users.first_name),
+       start_date=COALESCE(users.start_date, date('now', '+5 hours'))`
   ).bind(uid, firstName ?? null).run();
 }
 

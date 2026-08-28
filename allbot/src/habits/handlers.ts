@@ -85,12 +85,32 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
 
     const state = session.userState;
 
+    if (action === 'h_time') {
+      const selectedTime = parts[1];
+      if (state && typeof state === 'object' && state.mode === 'habit_time') {
+        state.mode = 'habit_minimum';
+        state.time = selectedTime;
+        session.userState = state;
+        await sendMessage(env, chatId, `⏰ Eslatma vaqti: *${selectedTime}* o'rnatildi.\n\nEndi odatning *Eng kichik (minimum) versiyasini* kiriting.\nMasalan: '1 bet kitob o'qish' yoki 'Krossovkalarni kiyib chiqish'.`, {
+          replyMarkup: {
+            inline_keyboard: [[{ text: "O'tkazish", callback_data: 'h_min_skip' }]]
+          }
+        });
+      }
+      await answerCallbackQuery(env, cq.id);
+      return true;
+    }
+
     if (action === 'h_time_skip') {
       if (state && typeof state === 'object' && state.mode === 'habit_time') {
         state.mode = 'habit_minimum';
         state.time = null;
         session.userState = state;
-        await sendMessage(env, chatId, "Yaxshi, eslatma o'rnatilmadi.\n\nEndi odatning *Eng kichik (minimum) versiyasini* kiriting.\nMasalan: '1 bet kitob o'qish' yoki 'Krossovkalarni kiyib chiqish'.");
+        await sendMessage(env, chatId, "Yaxshi, eslatma o'rnatilmadi.\n\nEndi odatning *Eng kichik (minimum) versiyasini* kiriting.\nMasalan: '1 bet kitob o'qish' yoki 'Krossovkalarni kiyib chiqish'.", {
+          replyMarkup: {
+            inline_keyboard: [[{ text: "O'tkazish", callback_data: 'h_min_skip' }]]
+          }
+        });
       }
       await answerCallbackQuery(env, cq.id);
       return true;
@@ -114,8 +134,9 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
     if (action === 'h_ifthen_skip') {
       if (state && typeof state === 'object' && state.mode === 'habit_ifthen') {
         await createHabit(env.DB, userId, state.name, state.time, state.minimum, null);
-        session.userState = 'active';
-        await sendMessage(env, chatId, "✅ Yangi odat muvaffaqiyatli saqlandi!");
+        await env.DB.prepare("UPDATE users SET start_date = COALESCE(start_date, date('now', '+5 hours')) WHERE user_id = ?").bind(userId).run();
+        session.userState = null;
+        await sendMessage(env, chatId, "✅ Yangi odat muvaffaqiyatli saqlandi!\n\n📋 *Bugungi vazifalar* menyusidan tekshirishingiz mumkin.");
       }
       await answerCallbackQuery(env, cq.id);
       return true;
@@ -230,8 +251,8 @@ async function handleHabitNameInput(env: Env, session: Session, chatId: number, 
   await sendMessage(env, chatId, "Odat uchun eslatma vaqtini kiriting (HH:MM formatida):\n(Yoki quyidagi tugmalardan birini tanlang)", {
     replyMarkup: {
       inline_keyboard: [
-        [{ text: "05:30", callback_data: 'h_time_fake' }, { text: "07:00", callback_data: 'h_time_fake' }, { text: "09:00", callback_data: 'h_time_fake' }],
-        [{ text: "12:00", callback_data: 'h_time_fake' }, { text: "18:00", callback_data: 'h_time_fake' }, { text: "21:00", callback_data: 'h_time_fake' }],
+        [{ text: "05:30", callback_data: 'h_time:05:30' }, { text: "07:00", callback_data: 'h_time:07:00' }, { text: "09:00", callback_data: 'h_time:09:00' }],
+        [{ text: "12:00", callback_data: 'h_time:12:00' }, { text: "18:00", callback_data: 'h_time:18:00' }, { text: "21:00", callback_data: 'h_time:21:00' }],
         [{ text: "O'tkazish", callback_data: 'h_time_skip' }]
       ]
     }
@@ -248,7 +269,7 @@ async function handleHabitTimeInput(env: Env, session: Session, chatId: number, 
   
   session.userState.mode = 'habit_minimum';
   session.userState.time = timeStr;
-  await sendMessage(env, chatId, "Eslatma vaqti o'rnatildi.\n\nEndi odatning *Eng kichik (minimum) versiyasini* kiriting.\nMasalan: '1 bet kitob o'qish' yoki 'Krossovkalarni kiyib chiqish'.", {
+  await sendMessage(env, chatId, `⏰ Eslatma vaqti: *${timeStr}* o'rnatildi.\n\nEndi odatning *Eng kichik (minimum) versiyasini* kiriting.\nMasalan: '1 bet kitob o'qish' yoki 'Krossovkalarni kiyib chiqish'.`, {
     replyMarkup: {
       inline_keyboard: [[{ text: "O'tkazish", callback_data: 'h_min_skip' }]]
     }
@@ -268,8 +289,9 @@ async function handleHabitMinimumInput(env: Env, session: Session, chatId: numbe
 async function handleHabitIfThenInput(env: Env, session: Session, chatId: number, userId: number, text: string): Promise<void> {
   const state = session.userState;
   await createHabit(env.DB, userId, state.name, state.time, state.minimum, text);
-  session.userState = 'active';
-  await sendMessage(env, chatId, "✅ Yangi odat muvaffaqiyatli saqlandi!");
+  await env.DB.prepare("UPDATE users SET start_date = COALESCE(start_date, date('now', '+5 hours')) WHERE user_id = ?").bind(userId).run();
+  session.userState = null;
+  await sendMessage(env, chatId, "✅ Yangi odat muvaffaqiyatli saqlandi!\n\n📋 *Bugungi vazifalar* menyusidan tekshirishingiz mumkin.");
 }
 
 async function showHabitManagement(env: Env, chatId: number, userId: number): Promise<void> {

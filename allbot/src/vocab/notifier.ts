@@ -8,7 +8,7 @@ import {
 } from './db';
 import { levelProgress } from './gamification';
 
-export const COOLDOWN_HOURS = 12;
+export const COOLDOWN_HOURS = 4;
 export const STREAK_WARNING_HOUR = 20;
 export const REENGAGE_INACTIVE_DAYS = 3;
 export const REENGAGE_COOLDOWN_DAYS = 3;
@@ -41,7 +41,8 @@ export async function notifyOnce(env: Env): Promise<void> {
 }
 
 export async function checkStreakRisk(env: Env): Promise<void> {
-  if ((new Date()).getUTCHours() < STREAK_WARNING_HOUR) return;
+  const tashkentHour = (new Date().getUTCHours() + 5) % 24;
+  if (tashkentHour < STREAK_WARNING_HOUR) return;
   const targets = await usersStreakAtRisk(env.DB);
   for (const { user_id, first_name, current_streak } of targets) {
     const name = first_name || "Do'stim";

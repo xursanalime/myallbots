@@ -38,6 +38,26 @@ export default {
       });
     }
     
+    if (url.pathname === '/test-cron') {
+      await initSchema(env.DB);
+      const results: any = {};
+      try {
+        await runScheduledChecks(env);
+        results.vocab = "ok";
+      } catch (e: any) {
+        results.vocab_error = String(e?.message || e);
+      }
+      try {
+        await runHabitScheduledChecks(env);
+        results.habits = "ok";
+      } catch (e: any) {
+        results.habits_error = String(e?.message || e);
+      }
+      return new Response(JSON.stringify(results, null, 2), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
     if (request.method !== 'POST' || url.pathname !== '/webhook') {
       return new Response('Not found', { status: 404 });
     }

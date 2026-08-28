@@ -128,23 +128,36 @@ export async function calculateAndSaveDailyScore(db: D1Database, userId: number,
   return scoreObj;
 }
 
-export async function getHabitsNeedingReminder(db: D1Database, currentTime: string): Promise<Array<HabitRow & { first_name: string | null }>> {
+export async function getHabitsNeedingReminder(db: D1Database, currentTime: string, currentDate: string): Promise<Array<HabitRow & { first_name: string | null }>> {
   const { results } = await db.prepare(
     `SELECT h.*, u.first_name 
      FROM habits h 
      JOIN users u ON h.user_id = u.user_id 
      WHERE h.active = 1 
        AND u.notify = 1 
-       AND h.reminder_time = ? 
+       AND h.reminder_time IS NOT NULL
+       AND h.reminder_time <= ?
+       AND (h.last_reminded_date IS NULL OR h.last_reminded_date != ?)
        AND NOT EXISTS (
          SELECT 1 FROM habit_logs hl 
          WHERE hl.habit_id = h.id 
-           AND hl.date = date('now', '+5 hours') 
-           AND hl.status != 'pending' 
-           AND hl.status != 'later'
+           AND hl.date = ? 
+           AND hl.status IN ('done', 'minimum')
        )`
-  ).bind(currentTime).all<HabitRow & { first_name: string | null }>();
+  ).bind(currentTime, currentDate, currentDate).all<HabitRow & { first_name: string | null }>();
   return results || [];
+}
+
+export async function markHabitReminded(db: D1Database, habitId: number, date: string): Promise<void> {
+  await db.prepare("UPDATE habits SET last_reminded_date = ? WHERE id = ?").bind(date, habitId).run();
+}
+
+export async function markMorningMessageSent(db: D1Database, userId: number, date: string): Promise<void> {
+  await db.prepare("UPDATE users SET last_morning_date = ? WHERE user_id = ?").bind(date, userId).run();
+}
+
+export async function markEveningMessageSent(db: D1Database, userId: number, date: string): Promise<void> {
+  await db.prepare("UPDATE users SET last_evening_date = ? WHERE user_id = ?").bind(date, userId).run();
 }
 
 export async function getHabitsForLaterReminder(db: D1Database, date: string): Promise<Array<{habit_id: number; user_id: number; habit_name: string; first_name: string | null}>> {
@@ -158,16 +171,17 @@ export async function getHabitsForLaterReminder(db: D1Database, date: string): P
        AND hl.date = ? 
        AND hl.status = 'later' 
        AND hl.logged_at >= datetime('now', '-2 hours') 
-       AND hl.logged_at <= datetime('now', '-1 hours')`
+       AND hl.logged_at <= datetime('now', '-45 minutes')`
   ).bind(date).all<{habit_id: number; user_id: number; habit_name: string; first_name: string | null}>();
   return results || [];
 }
 
-export async function getUsersForTimeMessage(db: D1Database): Promise<Array<{user_id: number; first_name: string | null; start_date: string | null}>> {
+export async function getUsersForTimeMessage(db: D1Database): Promise<Array<{user_id: number; first_name: string | null; start_date: string | null; ai_enabled: number; last_morning_date: string | null; last_evening_date: string | null}>> {
   const { results } = await db.prepare(
-    `SELECT user_id, first_name, start_date 
+    `SELECT user_id, first_name, COALESCE(start_date, date('now', '+5 hours')) as start_date, 
+            COALESCE(ai_enabled, 0) as ai_enabled, last_morning_date, last_evening_date
      FROM users 
-     WHERE notify = 1 AND start_date IS NOT NULL`
-  ).bind().all<{user_id: number; first_name: string | null; start_date: string | null}>();
+     WHERE notify = 1`
+  ).bind().all<any>();
   return results || [];
 }
