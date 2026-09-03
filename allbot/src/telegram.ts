@@ -27,7 +27,7 @@ export async function api(env: Env, method: string, payload: Record<string, unkn
   return await response.json();
 }
 
-export async function sendMessage(env: Env, chatId: number, text: string, opts: SendMessageOpts = {}): Promise<any> {
+export async function sendMessage(env: Env, chatId: number | string, text: string, opts: SendMessageOpts = {}): Promise<any> {
   const payload: Record<string, unknown> = {
     chat_id: chatId,
     text: text
@@ -40,7 +40,13 @@ export async function sendMessage(env: Env, chatId: number, text: string, opts: 
     payload.reply_markup = opts.replyMarkup;
   }
 
-  return await api(env, 'sendMessage', payload);
+  const res = await api(env, 'sendMessage', payload);
+  if (res && res.ok === false && String(res.description || '').includes("can't parse entities")) {
+    console.warn("Parse mode failed in sendMessage, retrying without parse_mode:", res.description);
+    delete payload.parse_mode;
+    return await api(env, 'sendMessage', payload);
+  }
+  return res;
 }
 
 export async function answerCallbackQuery(env: Env, callbackId: string, text?: string): Promise<any> {
@@ -55,7 +61,7 @@ export async function answerCallbackQuery(env: Env, callbackId: string, text?: s
   return await api(env, 'answerCallbackQuery', payload);
 }
 
-export async function editMessageText(env: Env, chatId: number, messageId: number, text: string, opts: SendMessageOpts = {}): Promise<any> {
+export async function editMessageText(env: Env, chatId: number | string, messageId: number, text: string, opts: SendMessageOpts = {}): Promise<any> {
   const payload: Record<string, unknown> = {
     chat_id: chatId,
     message_id: messageId,
@@ -69,10 +75,16 @@ export async function editMessageText(env: Env, chatId: number, messageId: numbe
     payload.reply_markup = opts.replyMarkup;
   }
 
-  return await api(env, 'editMessageText', payload);
+  const res = await api(env, 'editMessageText', payload);
+  if (res && res.ok === false && String(res.description || '').includes("can't parse entities")) {
+    console.warn("Parse mode failed in editMessageText, retrying without parse_mode:", res.description);
+    delete payload.parse_mode;
+    return await api(env, 'editMessageText', payload);
+  }
+  return res;
 }
 
-export async function sendDocument(env: Env, chatId: number, filename: string, content: string, caption?: string): Promise<any> {
+export async function sendDocument(env: Env, chatId: number | string, filename: string, content: string, caption?: string): Promise<any> {
   const url = `https://api.telegram.org/bot${env.BOT_TOKEN}/sendDocument`;
   
   const formData = new FormData();

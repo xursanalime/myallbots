@@ -8,6 +8,25 @@ import { chatCompletion } from '../ai/openrouter';
 
 const DEFAULT_MODEL = 'google/gemini-3.7-flash';
 
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatAiMarkdownToHtml(text: string): string {
+  // First escape HTML entities
+  let safe = escapeHtml(text);
+  // Convert markdown bold **text** to <b>text</b>
+  safe = safe.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+  // Convert markdown italic *text* or _text_ to <i>text</i>
+  safe = safe.replace(/\*(.*?)\*/g, '<i>$1</i>');
+  safe = safe.replace(/_(.*?)_/g, '<i>$1</i>');
+  return safe;
+}
+
 export async function generateChannelReportText(
   env: Env,
   userId: number,
@@ -30,20 +49,21 @@ export async function generateChannelReportText(
 
   const habitLines: string[] = [];
   for (const h of habitLogs) {
+    const safeName = escapeHtml(h.name);
     if (h.status === 'done') {
       doneCount++;
-      habitLines.push(`✅ *${h.name}*`);
+      habitLines.push(`✅ <b>${safeName}</b>`);
     } else if (h.status === 'minimum') {
       minCount++;
-      const minText = h.minimum_version_text ? ` (${h.minimum_version_text})` : ' (minimum)';
-      habitLines.push(`🟡 *${h.name}*${minText}`);
+      const minText = h.minimum_version_text ? ` (${escapeHtml(h.minimum_version_text)})` : ' (minimum)';
+      habitLines.push(`🟡 <b>${safeName}</b>${minText}`);
     } else if (h.status === 'skipped') {
       skippedCount++;
-      const noteText = h.log_note ? ` — _${h.log_note}_` : '';
-      habitLines.push(`⏭ *${h.name}* (o'tkazildi)${noteText}`);
+      const noteText = h.log_note ? ` — <i>${escapeHtml(h.log_note)}</i>` : '';
+      habitLines.push(`⏭ <b>${safeName}</b> (o'tkazildi)${noteText}`);
     } else {
       pendingCount++;
-      habitLines.push(`⬜ *${h.name}* (bajarilmadi)`);
+      habitLines.push(`⬜ <b>${safeName}</b> (bajarilmadi)`);
     }
   }
 
@@ -70,14 +90,14 @@ export async function generateChannelReportText(
 Foydalanuvchi: ${userName}
 Sana: ${displayDate} (${dayNumber}-kun)
 Odatlar holati (${doneCount + minCount}/${totalHabits} bajarildi):
-${habitLines.join('\n')}
+${habitLogs.map(h => `- ${h.name}: ${h.status}`).join('\n')}
 Kunlik ball: ${overallScorePct}%
 Streak: ${streak} kun
 Lug'at: ${vStats.total} ta so'z (Quti 5: ${vStats.done} ta), ${xp} XP (${level}-daraja)
 `;
       const systemPrompt = `Sen shaxsiy rivojlanish ("My development") kanali uchun kunlik qisqa xulosa yozuvchisan.
 Keltirilgan ma'lumotlar asosida 2-3 jumlali lo'nda, samimiy, intizomni mustahkamlovchi xulosa yoki motivatsion tavsiya yoz.
-O'zbek tilida yoz. Hech qanday soxta gaplarsiz, bugungi faktlarga asoslan.`;
+O'zbek tilida yoz. Oddiy matn formatida javob ber, ortiqcha belgilarsiz.`;
 
       const res = await chatCompletion(
         env.OPENROUTER_API_KEY,
@@ -96,32 +116,32 @@ O'zbek tilida yoz. Hech qanday soxta gaplarsiz, bugungi faktlarga asoslan.`;
     }
   }
 
-  // 5. Assemble final message
-  let text = `📊 *KUNLIK HISOBOT | ${displayDate}*\n`;
-  text += `🎯 *${dayNumber}-kun*\n\n`;
+  // 5. Assemble final HTML message
+  let text = `📊 <b>KUNLIK HISOBOT | ${displayDate}</b>\n`;
+  text += `🎯 <b>${dayNumber}-kun</b>\n\n`;
 
   if (totalHabits > 0) {
-    text += `📋 *ODATLAR VA INTIZOM:*\n`;
+    text += `📋 <b>ODATLAR VA INTIZOM:</b>\n`;
     text += `${habitLines.join('\n')}\n\n`;
 
-    text += `📈 *Kunlik natija:*\n`;
-    text += `• Intizom ko'rsatkichi: *${overallScorePct}%*\n`;
-    text += `• Bajarilgan odatlar: *${doneCount + minCount}/${totalHabits} ta*\n`;
-    text += `• Uzluksiz ketma-ketlik (Streak): *${streak} kun* 🔥\n\n`;
+    text += `📈 <b>Kunlik natija:</b>\n`;
+    text += `• Intizom ko'rsatkichi: <b>${overallScorePct}%</b>\n`;
+    text += `• Bajarilgan odatlar: <b>${doneCount + minCount}/${totalHabits} ta</b>\n`;
+    text += `• Uzluksiz ketma-ketlik (Streak): <b>${streak} kun</b> 🔥\n\n`;
   } else {
-    text += `📋 *ODATLAR:* Hozircha faol odatlar kiritilmagan.\n\n`;
+    text += `📋 <b>ODATLAR:</b> Hozircha faol odatlar kiritilmagan.\n\n`;
   }
 
   if (vStats.total > 0) {
-    text += `📚 *LUG'AT (BrainBridge):*\n`;
-    text += `• Jami so'zlar: *${vStats.total} ta*\n`;
-    text += `• To'liq o'zlashtirilgan: *${vStats.done} ta* (Quti 5)\n`;
-    text += `• Tajriba: *${xp} XP* (${level}-daraja)\n\n`;
+    text += `📚 <b>LUG'AT (BrainBridge):</b>\n`;
+    text += `• Jami so'zlar: <b>${vStats.total} ta</b>\n`;
+    text += `• To'liq o'zlashtirilgan: <b>${vStats.done} ta</b> (Quti 5)\n`;
+    text += `• Tajriba: <b>${xp} XP</b> (${level}-daraja)\n\n`;
   }
 
   if (aiComment) {
-    text += `🤖 *Kun xulosasi (AI):*\n`;
-    text += `"${aiComment}"\n\n`;
+    text += `🤖 <b>Kun xulosasi (AI):</b>\n`;
+    text += `<i>"${formatAiMarkdownToHtml(aiComment)}"</i>\n\n`;
   }
 
   text += `#kunlik_hisobot #intizom #development #natija`;
@@ -153,7 +173,7 @@ export async function sendChannelReport(
     user?.start_date
   );
 
-  const res = await sendMessage(env, channelId as any, reportText);
+  const res = await sendMessage(env, channelId, reportText, { parseMode: 'HTML' });
 
   if (res && res.ok === false) {
     const desc = res.description || "Telegram API xatoligi";
