@@ -52,8 +52,12 @@ export async function checkStreakRisk(env: Env): Promise<void> {
 }
 
 export async function checkReengagement(env: Env): Promise<void> {
+  const tashkentHour = (new Date().getUTCHours() + 5) % 24;
+  if (tashkentHour < 10 || tashkentHour >= 20) return;
+
   const targets = await usersForReengagement(env.DB, REENGAGE_INACTIVE_DAYS, REENGAGE_COOLDOWN_DAYS);
   for (const { user_id, first_name, days_inactive } of targets) {
+    if (!days_inactive || days_inactive < REENGAGE_INACTIVE_DAYS || days_inactive > 365) continue;
     const name = first_name || "Do'stim";
     const text = `\u{1F44B} *Sizni sog'indik, ${name}!*\n\n*${days_inactive} kundan* beri so'zlaringizni takrorlamadingiz.\n\n\u{1F4A1} *\u{1F501} Takrorlash* tugmasini bosib, o'rganishni davom eting!`;
     if (await send(env, user_id, text)) await markReengaged(env.DB, user_id);
@@ -61,6 +65,17 @@ export async function checkReengagement(env: Env): Promise<void> {
 }
 
 export async function checkWeeklySummary(env: Env): Promise<void> {
+  const now = new Date();
+  const tashkentTime = new Date(now.getTime() + 5 * 60 * 60 * 1000);
+  const dayOfWeek = tashkentTime.getUTCDay(); // 0 = Yakshanba, 1 = Dushanba
+  
+  // Haftalik xulosa FAQAT Dushanba kunlari yuboriladi
+  if (dayOfWeek !== 1) return;
+
+  // Dushanba kuni ertalab 09:00 dan 13:00 gacha
+  const currentHour = tashkentTime.getUTCHours();
+  if (currentHour < 9 || currentHour >= 13) return;
+
   const targets = await usersForWeeklySummary(env.DB);
   for (const { user_id, first_name } of targets) {
     const name = first_name || "Do'stim";

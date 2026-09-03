@@ -424,10 +424,10 @@ export async function markStreakWarned(db: D1Database, uid: number): Promise<voi
 export async function usersForReengagement(db: D1Database, inactiveDays: number, cooldownDays: number): Promise<any[]> {
   const { results } = await db.prepare(
     `SELECT user_id, first_name,
-              COALESCE(CAST(julianday('now') - julianday(last_active_date) AS INTEGER), 9999) as days_inactive
+            CAST(julianday('now') - julianday(COALESCE(last_active_date, created_at)) AS INTEGER) as days_inactive
        FROM users
        WHERE notify = 1
-         AND (last_active_date IS NULL OR last_active_date <= date('now', '-' || ? || ' days'))
+         AND COALESCE(last_active_date, created_at) <= date('now', '-' || ? || ' days')
          AND (last_reengagement_at IS NULL OR last_reengagement_at <= datetime('now', '-' || ? || ' days'))
          AND EXISTS (SELECT 1 FROM words w WHERE w.user_id = users.user_id)`
   ).bind(inactiveDays, cooldownDays).all();

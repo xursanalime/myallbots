@@ -226,12 +226,12 @@ export async function resetAllUserStats(db: D1Database, userId: number): Promise
         xp = 0,
         current_streak = 0,
         longest_streak = 0,
-        last_active_date = NULL,
-        last_streak_warning_date = NULL,
-        last_reengagement_at = NULL,
-        last_weekly_summary_at = NULL,
+        last_active_date = date('now', '+5 hours'),
+        last_streak_warning_date = date('now', '+5 hours'),
+        last_reengagement_at = CURRENT_TIMESTAMP,
+        last_weekly_summary_at = CURRENT_TIMESTAMP,
         start_date = date('now', '+5 hours'),
-        last_morning_date = NULL,
+        last_morning_date = date('now', '+5 hours'),
         last_evening_date = NULL,
         last_channel_report_date = NULL
       WHERE user_id = ?
