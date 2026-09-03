@@ -210,3 +210,34 @@ export async function getUsersForChannelReport(db: D1Database, currentDate: stri
   return results || [];
 }
 
+export async function resetAllUserStats(db: D1Database, userId: number): Promise<void> {
+  const statements = [
+    // 1. Delete all habit daily logs for this user's habits
+    db.prepare('DELETE FROM habit_logs WHERE habit_id IN (SELECT id FROM habits WHERE user_id = ?)').bind(userId),
+    // 2. Delete all daily scores
+    db.prepare('DELETE FROM daily_scores WHERE user_id = ?').bind(userId),
+    // 3. Delete earned badges
+    db.prepare('DELETE FROM badges WHERE user_id = ?').bind(userId),
+    // 4. Reset vocab words to Box 0 (fresh start for revision)
+    db.prepare('UPDATE words SET box = 0, next_review = CURRENT_TIMESTAMP WHERE user_id = ?').bind(userId),
+    // 5. Reset streak, XP, start_date and reminder timestamps
+    db.prepare(`
+      UPDATE users SET 
+        xp = 0,
+        current_streak = 0,
+        longest_streak = 0,
+        last_active_date = NULL,
+        last_streak_warning_date = NULL,
+        last_reengagement_at = NULL,
+        last_weekly_summary_at = NULL,
+        start_date = date('now', '+5 hours'),
+        last_morning_date = NULL,
+        last_evening_date = NULL,
+        last_channel_report_date = NULL
+      WHERE user_id = ?
+    `).bind(userId)
+  ];
+  await db.batch(statements);
+}
+
+

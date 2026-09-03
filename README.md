@@ -186,6 +186,15 @@ Bot kunlik intizom, odatlar, lug'at natijalari va AI sharhini shaxsiy Telegram k
 
 ---
 
+### 🗑️ Barcha statistikani tozalash (Reset)
+
+Statistikalarni, kunlik ballarni, streaklar va XP ni 0 dan qayta boshlash uchun:
+* Botga `/resetstats` (yoki `/clearstats`, `/tozalash`) buyrug'ini yuboring.
+* Yoki `⚙️ Sozlamalar -> 🗑 Barcha statistikani tozalash` tugmasini bosing.
+* _(Eslatma: Odatlaringiz va so'zlaringiz ro'yxati o'chirilmaydi, faqat ularning ballari va progressi 0 ga tushiriladi)_.
+
+---
+
 ## 🔗 Foydali havolalar
 
 - **Bot**: [@Cloudchibot](https://t.me/Cloudchibot)

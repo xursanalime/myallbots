@@ -7,7 +7,7 @@ import { handleVocabMessage, handleVocabCallback, vocabWelcome } from './vocab/h
 import { handleHabitMessage, handleHabitCallback } from './habits/handlers';
 import { handleAiMessage, handleAiCallback, showAiMenu } from './ai/handlers';
 import { getHabitStats, formatStatsMessage, getCurrentDate } from './habits/stats';
-import { setChannelId, setChannelReportEnabled } from './habits/db';
+import { setChannelId, setChannelReportEnabled, resetAllUserStats } from './habits/db';
 import { sendChannelReport } from './habits/channel_report';
 import { settingsKb, settingsText } from './vocab/handlers';
 
@@ -182,6 +182,39 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
     }
   }
 
+  // 🗑 Reset statistics command
+  if (text === '/resetstats' || text === '/clearstats' || text === '/tozalash') {
+    const kb = {
+      inline_keyboard: [
+        [
+          { text: "✅ Ha, tozalash", callback_data: "reset_stats_confirm" },
+          { text: "❌ Bekor qilish", callback_data: "reset_stats_cancel" }
+        ]
+      ]
+    };
+    const confirmText =
+      `⚠️ *Barcha statistikani tozalash*\n\n` +
+      `Ushbu amal quyidagilarni 0 ga tushiradi:\n` +
+      `• Barcha kunlik odat natijalari va kundalik ballar\n` +
+      `• Intizom va lug'at streak'lari (uzluksizlik kunlari)\n` +
+      `• Barcha to'plangan XP ballar va darajalar\n` +
+      `• Qo'lga kiritilgan yutuq nishonlari (badges)\n` +
+      `• So'zlarning takrorlash qutilari (barchasi boshlang'ich Quti 0 ga qaytadi)\n\n` +
+      `📌 _Odatlar va so'zlaringiz ro'yxati saqlanadi, faqat hisobot va statistikalar 0 dan boshlanadi._\n\n` +
+      `Rostdan ham barcha statistikani tozalamoqchimisiz?`;
+
+    await sendMessage(env, chatId, confirmText, { replyMarkup: kb });
+    return;
+  }
+
+  if (text === '/resetstats force' || text === '/clearstats force') {
+    await resetAllUserStats(env.DB, uid);
+    session.quizState = null;
+    session.userState = null;
+    await sendMessage(env, chatId, `✨ *Barcha statistika muvaffaqiyatli tozalandi!*\n\nIntizom ballari, streaklar va XP 0 dan boshlandi. Yangi muvaffaqiyatlar tilaymiz! 🚀`, { replyMarkup: mainMenu() });
+    return;
+  }
+
   // Delegate to module handlers
   if (await handleVocabMessage(env, session, msg)) return;
   if (await handleHabitMessage(env, session, msg)) return;
@@ -273,6 +306,61 @@ async function handleCallback(env: Env, session: Session, cq: TelegramCallbackQu
     return;
   }
 
+  if (data === 'reset_stats_prompt') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id);
+    const kb = {
+      inline_keyboard: [
+        [
+          { text: "✅ Ha, tozalash", callback_data: "reset_stats_confirm" },
+          { text: "❌ Bekor qilish", callback_data: "reset_stats_cancel" }
+        ]
+      ]
+    };
+    const confirmText =
+      `⚠️ *Barcha statistikani tozalash*\n\n` +
+      `Ushbu amal quyidagilarni 0 ga tushiradi:\n` +
+      `• Barcha kunlik odat natijalari va kundalik ballar\n` +
+      `• Intizom va lug'at streak'lari (uzluksizlik kunlari)\n` +
+      `• Barcha to'plangan XP ballar va darajalar\n` +
+      `• Qo'lga kiritilgan yutuq nishonlari (badges)\n` +
+      `• So'zlarning takrorlash qutilari (barchasi boshlang'ich Quti 0 ga qaytadi)\n\n` +
+      `📌 _Odatlar va so'zlaringiz ro'yxati saqlanadi, faqat statistika 0 dan boshlanadi._\n\n` +
+      `Rostdan ham barcha statistikani tozalamoqchimisiz?`;
+
+    if (cq.message?.message_id) {
+      await editMessageText(env, uid, cq.message.message_id, confirmText, { replyMarkup: kb });
+    } else {
+      await sendMessage(env, uid, confirmText, { replyMarkup: kb });
+    }
+    return;
+  }
+
+  if (data === 'reset_stats_confirm') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await resetAllUserStats(env.DB, uid);
+    session.quizState = null;
+    session.userState = null;
+    await answerCallbackQuery(env, cq.id, "✅ Statistika tozalandi!");
+    await editMessageText(
+      env,
+      uid,
+      cq.message?.message_id!,
+      `✨ *Barcha statistika muvaffaqiyatli tozalandi!*\n\nIntizom ballari, streaklar, XP va nishonlar 0 ga tushirildi. Bugundan yangi rekordlar sari olg'a! 🚀`
+    );
+    return;
+  }
+
+  if (data === 'reset_stats_cancel') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id, "Bekor qilindi");
+    await showSettings(env, uid, uid, cq.message?.message_id);
+    return;
+  }
+
   if (data === 'settings_vocab') {
     const uid = cq.message?.chat.id;
     if (!uid) return;
@@ -343,6 +431,9 @@ async function showSettings(env: Env, chatId: number, userId: number, messageId?
       ],
       [
         { text: "📚 Lug'at sozlamalari", callback_data: 'settings_vocab' }
+      ],
+      [
+        { text: "🗑 Barcha statistikani tozalash", callback_data: 'reset_stats_prompt' }
       ]
     ]
   };
