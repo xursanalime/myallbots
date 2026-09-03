@@ -6,10 +6,13 @@ import {
   getHabitsForLaterReminder,
   markHabitReminded,
   markMorningMessageSent,
-  markEveningMessageSent
+  markEveningMessageSent,
+  getUsersForChannelReport,
+  markChannelReportSent
 } from './db';
 import { calculateDayNumber } from './stats';
 import { generateDailyAnalysis, buildFullUserContext } from '../ai/analysis';
+import { sendChannelReport } from './channel_report';
 
 export async function runHabitScheduledChecks(env: Env): Promise<void> {
   const now = new Date();
@@ -32,11 +35,32 @@ export async function runHabitScheduledChecks(env: Env): Promise<void> {
     await sendEveningMessages(env, currentDate);
   }
 
+  // Daily channel report at 22:00 PM Toshkent time
+  if (currentHour >= 22) {
+    await sendChannelReports(env, currentDate);
+  }
+
   // Check individual habit reminders
   await sendHabitReminders(env, timeStr, currentDate);
   
   // Check 'later' reminders
   await sendLaterReminders(env, currentDate);
+}
+
+async function sendChannelReports(env: Env, currentDate: string): Promise<void> {
+  const users = await getUsersForChannelReport(env.DB, currentDate);
+  for (const user of users) {
+    try {
+      const res = await sendChannelReport(env, user.user_id, currentDate, user.channel_id);
+      if (res.success) {
+        await markChannelReportSent(env.DB, user.user_id, currentDate);
+      } else {
+        console.error(`Failed to send channel report for user ${user.user_id}:`, res.error);
+      }
+    } catch (e) {
+      console.error(`Exception sending channel report for user ${user.user_id}:`, e);
+    }
+  }
 }
 
 async function sendMorningMessages(env: Env, currentDate: string): Promise<void> {

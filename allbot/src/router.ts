@@ -1,5 +1,5 @@
 import { Env, Session, TelegramUpdate, TelegramMessage, TelegramCallbackQuery } from './types';
-import { sendMessage, answerCallbackQuery, inlineKeyboard } from './telegram';
+import { sendMessage, editMessageText, answerCallbackQuery, inlineKeyboard } from './telegram';
 import { mainMenu, isMainMenuButton } from './menu';
 import { loadSession, saveSession } from './session';
 import { initSchema, registerUser, stats as vocabStats, getNotify, setNotify } from './vocab/db';
@@ -7,6 +7,8 @@ import { handleVocabMessage, handleVocabCallback, vocabWelcome } from './vocab/h
 import { handleHabitMessage, handleHabitCallback } from './habits/handlers';
 import { handleAiMessage, handleAiCallback, showAiMenu } from './ai/handlers';
 import { getHabitStats, formatStatsMessage, getCurrentDate } from './habits/stats';
+import { setChannelId, setChannelReportEnabled } from './habits/db';
+import { sendChannelReport } from './habits/channel_report';
 import { settingsKb, settingsText } from './vocab/handlers';
 
 function extractChatId(update: TelegramUpdate): number | null {
@@ -107,6 +109,79 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
     return;
   }
 
+  // 📢 Forward from channel detection (auto-connect channel)
+  if (msg.forward_from_chat && msg.forward_from_chat.type === 'channel') {
+    const channelId = String(msg.forward_from_chat.id);
+    const channelTitle = msg.forward_from_chat.title || 'Kanal';
+    const channelUsername = msg.forward_from_chat.username ? `@${msg.forward_from_chat.username}` : '';
+
+    await setChannelId(env.DB, uid, channelId);
+    session.userState = null;
+
+    let text = `🎉 *Kanal muvaffaqiyatli ulandi!*\n\n`;
+    text += `📢 *Kanal:* ${esc(channelTitle)}\n`;
+    if (channelUsername) text += `🔗 *Username:* ${channelUsername}\n`;
+    text += `🆔 *ID:* \`${channelId}\`\n\n`;
+    text += `⏰ Har kuni soat *22:00 da* (Toshkent vaqti) kunlik hisobotingiz ushbu kanalga yuboriladi.\n\n`;
+    text += `💡 *Muhim:* Bot kanalingizda *Administrator* (xabar yozish ruxsati bilan) ekanligiga ishonch hosil qiling!\n\n`;
+    text += `👉 Hoziroq kanalga test hisoboti yuborish uchun /testreport ni bosing.`;
+
+    await sendMessage(env, chatId, text, { replyMarkup: mainMenu() });
+    return;
+  }
+
+  // 📢 Channel commands
+  if (text === '/testreport' || text.startsWith('/testreport ')) {
+    const today = getCurrentDate('+05:00');
+    await sendMessage(env, chatId, `⏳ Kanalga test hisoboti yuborilmoqda...`);
+    const res = await sendChannelReport(env, uid, today);
+    if (res.success) {
+      await sendMessage(env, chatId, `✅ *Hisobot kanalingizga muvaffaqiyatli yuborildi!*\n\nKanalingizni tekshirib ko'rishingiz mumkin.`, { replyMarkup: mainMenu() });
+    } else {
+      await sendMessage(env, chatId, `❌ *Xatolik yuz berdi:*\n\n${res.error || 'Noma\'lum xatolik'}\n\nIltimos, bot kanalda Administrator ekanligini va xabar yozish ruxsati borligini tekshiring.`);
+    }
+    return;
+  }
+
+  if (text.startsWith('/setchannel')) {
+    const parts = text.split(/\s+/);
+    const target = parts[1];
+    if (!target) {
+      session.userState = 'setting_channel';
+      await sendMessage(env, chatId, `📢 *Kanalni ulash*\n\nKanal ID yoki @username kiriting (masalan: \`-100123456789\` yoki \`@mydev_channel\`):\n\n_Yoki kanalingizdan istalgan xabarni bu yerga Forward qiling!_`);
+      return;
+    }
+    await setChannelId(env.DB, uid, target);
+    session.userState = null;
+    await sendMessage(env, chatId, `✅ Kanal ulandi: \`${target}\`\n\nHar kuni 22:00 da kunlik hisobot yuboriladi.\nTest qilish uchun: /testreport`, { replyMarkup: mainMenu() });
+    return;
+  }
+
+  if (text === '/delchannel' || text === '/unsetchannel') {
+    await setChannelId(env.DB, uid, null);
+    await sendMessage(env, chatId, `✅ Kanal uzildi. Endi hisobotlar kanalga yuborilmaydi.`);
+    return;
+  }
+
+  // 📢 Setting channel state (manual entry)
+  if (session.userState === 'setting_channel') {
+    if (text.includes('Asosiy menyu') || text.includes('Orqaga')) {
+      session.userState = null;
+      await sendMessage(env, chatId, 'Bekor qilindi.', { replyMarkup: mainMenu() });
+      return;
+    }
+    const clean = text.trim();
+    if (clean.startsWith('@') || clean.startsWith('-100') || /^-?\d+$/.test(clean)) {
+      await setChannelId(env.DB, uid, clean);
+      session.userState = null;
+      await sendMessage(env, chatId, `✅ Kanal muvaffaqiyatli saqlandi: \`${clean}\`\n\nHar kuni 22:00 da kunlik hisobot yuboriladi.\nTest qilish uchun /testreport ni bosing!`, { replyMarkup: mainMenu() });
+      return;
+    } else {
+      await sendMessage(env, chatId, `⚠️ Noto'g'ri format. Kanal ID (masalan: \`-10023456789\`) yoki @username (masalan: \`@mydev_channel\`) kiriting.\n\nYoki kanaldan biron xabarni bu yerga Forward qiling.`);
+      return;
+    }
+  }
+
   // Delegate to module handlers
   if (await handleVocabMessage(env, session, msg)) return;
   if (await handleHabitMessage(env, session, msg)) return;
@@ -138,6 +213,66 @@ async function handleCallback(env: Env, session: Session, cq: TelegramCallbackQu
     }
   }
 
+  if (data === 'settings_channel') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id);
+    await showChannelSettings(env, uid, uid, cq.message?.message_id);
+    return;
+  }
+
+  if (data === 'settings_main') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id);
+    await showSettings(env, uid, uid, cq.message?.message_id);
+    return;
+  }
+
+  if (data === 'channel_enter_id') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    session.userState = 'setting_channel';
+    await answerCallbackQuery(env, cq.id);
+    await sendMessage(env, uid, `✏️ Kanal ID yoki @username kiriting:\nMasalan: \`-100123456789\` yoki \`@mydev_channel\`\n\n_Yoki kanalingizdan istalgan xabarni bu yerga Forward qiling!_`);
+    return;
+  }
+
+  if (data === 'channel_test') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id, '⏳ Test hisoboti yuborilmoqda...');
+    const today = getCurrentDate('+05:00');
+    const res = await sendChannelReport(env, uid, today);
+    if (res.success) {
+      await sendMessage(env, uid, '✅ Test hisoboti kanalingizga muvaffaqiyatli yuborildi!\nKanalingizni tekshirib ko\'ring.');
+    } else {
+      await sendMessage(env, uid, `❌ *Xatolik yuz berdi:*\n\n${res.error}\n\nBot kanalingizda Administrator (xabar yozish huquqi bilan) ekanligini tekshiring.`);
+    }
+    return;
+  }
+
+  if (data === 'channel_toggle') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    const user = await env.DB.prepare('SELECT channel_report_enabled FROM users WHERE user_id=?').bind(uid).first() as any;
+    const current = user?.channel_report_enabled !== 0;
+    const nextVal = !current;
+    await setChannelReportEnabled(env.DB, uid, nextVal);
+    await answerCallbackQuery(env, cq.id, nextVal ? '▶️ Hisobot yoqildi!' : '⏸ Hisobot to\'xtatildi!');
+    await showChannelSettings(env, uid, uid, cq.message?.message_id);
+    return;
+  }
+
+  if (data === 'channel_unlink') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await setChannelId(env.DB, uid, null);
+    await answerCallbackQuery(env, cq.id, 'Kanal uzildi');
+    await showChannelSettings(env, uid, uid, cq.message?.message_id);
+    return;
+  }
+
   if (data === 'settings_vocab') {
     const uid = cq.message?.chat.id;
     if (!uid) return;
@@ -155,55 +290,111 @@ async function handleCallback(env: Env, session: Session, cq: TelegramCallbackQu
 async function showCombinedStats(env: Env, chatId: number, userId: number): Promise<void> {
   const user = await env.DB.prepare('SELECT start_date, timezone FROM users WHERE user_id=?').bind(userId).first() as any;
 
-  let text = '\ud83d\udcca *Umumiy Statistika*\n\n';
+  let text = '📊 *Umumiy Statistika*\n\n';
 
   // Habit stats
   if (user?.start_date) {
     const habitStats = await getHabitStats(env.DB, userId, user.start_date);
     text += formatStatsMessage(habitStats);
-    text += '\n\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n';
+    text += '\n\n━━━━━━━━━━━━━━━━━━━━━\n\n';
   }
 
   // Vocab stats
   const vs = await vocabStats(env.DB, userId);
   if (vs.total > 0) {
     const donePct = vs.total ? Math.floor(vs.done / vs.total * 100) : 0;
-    text += `\ud83d\udcda *Lug'at Statistikasi*\n\n`;
-    text += `\ud83d\udcda Jami so'zlar: *${vs.total}* ta\n`;
-    text += `\ud83c\udd95 Yangi: *${vs.new}* ta\n`;
-    text += `\ud83d\udd34 Takrorlash: *${vs.due}* ta\n`;
-    text += `\ud83c\udfc6 Yakunlangan: *${vs.done}* ta\n`;
-    text += `\ud83d\udcc8 Progress: *${donePct}%*`;
+    text += `📚 *Lug'at Statistikasi*\n\n`;
+    text += `📚 Jami so'zlar: *${vs.total}* ta\n`;
+    text += `🆕 Yangi: *${vs.new}* ta\n`;
+    text += `🔴 Takrorlash: *${vs.due}* ta\n`;
+    text += `🏆 Yakunlangan: *${vs.done}* ta\n`;
+    text += `📈 Progress: *${donePct}%*`;
   } else if (!user?.start_date) {
-    text = "\ud83d\udcca *Statistika*\n\nHali ma'lumot yo'q. Avval odat qo'shing yoki so'z qo'shing!";
+    text = "📊 *Statistika*\n\nHali ma'lumot yo'q. Avval odat qo'shing yoki so'z qo'shing!";
   }
 
   await sendMessage(env, chatId, text, { replyMarkup: mainMenu() });
 }
 
-async function showSettings(env: Env, chatId: number, userId: number): Promise<void> {
-  const user = await env.DB.prepare('SELECT notify, ai_enabled, timezone FROM users WHERE user_id=?').bind(userId).first() as any;
+async function showSettings(env: Env, chatId: number, userId: number, messageId?: number): Promise<void> {
+  const user = await env.DB.prepare('SELECT notify, ai_enabled, timezone, channel_id, channel_report_enabled FROM users WHERE user_id=?').bind(userId).first() as any;
 
-  const notifyStatus = (!user || user.notify) ? '\ud83d\udd14 Yoqilgan' : "\ud83d\udd15 O'chirilgan";
-  const aiStatus = user?.ai_enabled ? '\u2705 Yoqilgan' : "\u274c O'chirilgan";
+  const notifyStatus = (!user || user.notify) ? '🔔 Yoqilgan' : "🔕 O'chirilgan";
+  const aiStatus = user?.ai_enabled ? '✅ Yoqilgan' : "❌ O'chirilgan";
+  const channelStatus = user?.channel_id
+    ? `${user.channel_report_enabled !== 0 ? '✅ Yoqilgan' : '⏸ To\'xtatilgan'} (\`${user.channel_id}\`)`
+    : "❌ Ulanmagan";
 
   const text =
-    `\u2699\ufe0f *Sozlamalar*\n\n` +
-    `\ud83d\udce2 Eslatmalar: ${notifyStatus}\n` +
-    `\ud83e\udd16 AI yordamchi: ${aiStatus}\n` +
-    `\ud83d\udd50 Vaqt mintaqasi: UTC${user?.timezone || '+05:00'}`;
+    `⚙️ *Sozlamalar*\n\n` +
+    `📢 Eslatmalar: ${notifyStatus}\n` +
+    `🤖 AI yordamchi: ${aiStatus}\n` +
+    `📡 Hisobot kanali (22:00): ${channelStatus}\n` +
+    `🕒 Vaqt mintaqasi: UTC${user?.timezone || '+05:00'}`;
 
   const kb = {
     inline_keyboard: [
       [
-        { text: user?.notify ? "\ud83d\udd15 Eslatmalarni o'chirish" : '\ud83d\udd14 Eslatmalarni yoqish', callback_data: 'ai_toggle_notify' },
-        { text: user?.ai_enabled ? "\ud83e\udd16 AI o'chirish" : '\ud83e\udd16 AI yoqish', callback_data: 'ai_toggle' }
+        { text: user?.notify ? "🔕 Eslatmalarni o'chirish" : '🔔 Eslatmalarni yoqish', callback_data: 'ai_toggle_notify' },
+        { text: user?.ai_enabled ? "🤖 AI o'chirish" : '🤖 AI yoqish', callback_data: 'ai_toggle' }
       ],
       [
-        { text: "\ud83d\udcda Lug'at sozlamalari", callback_data: 'settings_vocab' }
+        { text: "📡 Hisobot kanali sozlamalari", callback_data: 'settings_channel' }
+      ],
+      [
+        { text: "📚 Lug'at sozlamalari", callback_data: 'settings_vocab' }
       ]
     ]
   };
 
-  await sendMessage(env, chatId, text, { replyMarkup: kb });
+  if (messageId) {
+    await editMessageText(env, chatId, messageId, text, { replyMarkup: kb });
+  } else {
+    await sendMessage(env, chatId, text, { replyMarkup: kb });
+  }
+}
+
+async function showChannelSettings(env: Env, chatId: number, userId: number, messageId?: number): Promise<void> {
+  const user = await env.DB.prepare('SELECT channel_id, channel_report_enabled FROM users WHERE user_id=?').bind(userId).first() as any;
+
+  const hasChannel = Boolean(user?.channel_id);
+  const isEnabled = user?.channel_report_enabled !== 0;
+
+  let text = `📢 *Kunlik hisobot kanali (22:00)*\n\n`;
+  if (hasChannel) {
+    text += `🔹 Ulangan kanal: \`${user.channel_id}\`\n`;
+    text += `🔹 Holati: ${isEnabled ? '✅ Faol (har kuni 22:00 da yuboriladi)' : '⏸ To\'xtatilgan'}\n\n`;
+    text += `_Kanalga hoziroq sinov hisobotini yuborish uchun pastdagi tugmani bosing:_`;
+  } else {
+    text += `Hozircha hech qanday kanal ulanmagan.\n\n`;
+    text += `*Kanalni qanday ulash mumkin?*\n`;
+    text += `1️⃣ Botni (@Cloudchibot) kanalingizga qo'shing va **Administrator** qiling (xabar yozish ruxsatini bering).\n`;
+    text += `2️⃣ Kanaldan istalgan xabarni botga **Forward** qiling (bot kanalni avtomatik taniydi).\n`;
+    text += `3️⃣ Yoki pastdagi tugma orqali kanal ID / @username kiriting.`;
+  }
+
+  const buttons: any[] = [];
+  if (hasChannel) {
+    buttons.push([
+      { text: '🚀 Test hisobot yuborish', callback_data: 'channel_test' }
+    ]);
+    buttons.push([
+      { text: isEnabled ? '⏸ Hisobotni to\'xtatish' : '▶️ Hisobotni yoqish', callback_data: 'channel_toggle' },
+      { text: '❌ Kanalni uzish', callback_data: 'channel_unlink' }
+    ]);
+  } else {
+    buttons.push([
+      { text: '✏️ ID yoki @username kiritish', callback_data: 'channel_enter_id' }
+    ]);
+  }
+  buttons.push([
+    { text: '🔙 Orqaga (Sozlamalar)', callback_data: 'settings_main' }
+  ]);
+
+  const kb = { inline_keyboard: buttons };
+  if (messageId) {
+    await editMessageText(env, chatId, messageId, text, { replyMarkup: kb });
+  } else {
+    await sendMessage(env, chatId, text, { replyMarkup: kb });
+  }
 }

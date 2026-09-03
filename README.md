@@ -166,10 +166,23 @@ Har **5 daqiqada** Cloudflare Cron orqali quyidagilar tekshiriladi:
 | 07:00–11:00 | 🌅 Tonggi salom + bugungi vazifalar soni |
 | Kundalik vaqt | ⏰ Individual odat eslatmasi (har odat uchun 1 marta/kun) |
 | 21:30+ | 🌙 Kechki xulosa + bajarilmagan odatlar ro'yxati |
+| 22:00+ | 📢 Telegram kanalga kunlik hisobot (Odatlar, Lug'at, Streak, AI xulosa) |
 | Kun davomida | 📚 Takrorlash vaqti kelgan so'zlar eslatmasi (4 soatda 1 marta) |
 | 20:00+ | 🔥 Streak yo'qolish xavfi ogohlantirishsi |
 | 3 kun faolsizlik | 👋 Re-engagement xabari |
 | Dushanba | 📅 Haftalik xulosa |
+
+---
+
+### 📢 Kanalga kunlik hisobot ulash (22:00)
+
+Bot kunlik intizom, odatlar, lug'at natijalari va AI sharhini shaxsiy Telegram kanalingizga (masalan, rivojlanish blogingizga) avtomatik joylab boradi:
+
+1. Botni (@Cloudchibot) kanalingizga **Administrator** qilib qo'shing (xabar yozish huquqini bering).
+2. Kanalingizdan istalgan xabarni botga **Forward** qiling (bot avtomatik taniydi va ulaydi).
+   * Yoki botga `/setchannel @kanal_nomi` (yoki `-100...` ID) buyrug'ini yuboring.
+3. Bot `⚙️ Sozlamalar -> 📡 Hisobot kanali` bo'limida ham to'liq boshqariladi.
+4. Kanalga darhol sinov hisobotini yuborib ko'rish uchun: `/testreport` buyrug'ini bering.
 
 ---
 

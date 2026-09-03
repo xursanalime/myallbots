@@ -185,3 +185,28 @@ export async function getUsersForTimeMessage(db: D1Database): Promise<Array<{use
   ).bind().all<any>();
   return results || [];
 }
+
+export async function setChannelId(db: D1Database, userId: number, channelId: string | null): Promise<void> {
+  await db.prepare('UPDATE users SET channel_id = ? WHERE user_id = ?').bind(channelId, userId).run();
+}
+
+export async function setChannelReportEnabled(db: D1Database, userId: number, enabled: boolean): Promise<void> {
+  await db.prepare('UPDATE users SET channel_report_enabled = ? WHERE user_id = ?').bind(enabled ? 1 : 0, userId).run();
+}
+
+export async function markChannelReportSent(db: D1Database, userId: number, date: string): Promise<void> {
+  await db.prepare('UPDATE users SET last_channel_report_date = ? WHERE user_id = ?').bind(date, userId).run();
+}
+
+export async function getUsersForChannelReport(db: D1Database, currentDate: string): Promise<Array<{user_id: number; first_name: string | null; channel_id: string; ai_enabled: number; start_date: string | null}>> {
+  const { results } = await db.prepare(
+    `SELECT user_id, first_name, channel_id, COALESCE(ai_enabled, 0) as ai_enabled, 
+            COALESCE(start_date, date('now', '+5 hours')) as start_date
+     FROM users 
+     WHERE channel_id IS NOT NULL 
+       AND COALESCE(channel_report_enabled, 1) = 1
+       AND (last_channel_report_date IS NULL OR last_channel_report_date != ?)`
+  ).bind(currentDate).all<any>();
+  return results || [];
+}
+

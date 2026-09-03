@@ -19,7 +19,10 @@ export const USER_COLUMNS = [
   ['timezone', "TEXT DEFAULT '+05:00'"],
   ['start_date', 'TEXT'],
   ['last_morning_date', 'TEXT'],
-  ['last_evening_date', 'TEXT']
+  ['last_evening_date', 'TEXT'],
+  ['channel_id', 'TEXT'],
+  ['channel_report_enabled', 'INTEGER DEFAULT 1'],
+  ['last_channel_report_date', 'TEXT']
 ];
 
 export async function ensureUserColumns(db: D1Database) {

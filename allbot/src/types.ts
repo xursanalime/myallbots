@@ -4,6 +4,7 @@ export interface Env {
   BOT_TOKEN: string;
   WEBHOOK_SECRET: string;
   OPENROUTER_API_KEY: string;
+  CHANNEL_ID?: string;
 }
 
 // Habit check-in status
@@ -26,6 +27,7 @@ export type UserState =
   | 'habit_ifthen'        // habits: entering if-then plan
   | { mode: 'habit_note'; habit_id: number; date: string }  // habits: entering note for skipped habit
   | { mode: 'habit_delete' }  // habits: selecting habit to delete
+  | 'setting_channel'     // channel: entering channel ID or username
   | 'ai_chat'             // AI: free chat mode
   | string;               // fallback for string-based states
 
@@ -69,6 +71,9 @@ export interface UserRow {
   ai_enabled: number;
   timezone: string;
   start_date: string | null;
+  channel_id?: string | null;
+  channel_report_enabled?: number;
+  last_channel_report_date?: string | null;
   created_at: string;
 }
 
@@ -134,6 +139,7 @@ export interface TelegramMessage {
   chat: TelegramChat;
   text?: string;
   date: number;
+  forward_from_chat?: TelegramChat;
 }
 
 export interface TelegramUser {
@@ -147,6 +153,8 @@ export interface TelegramUser {
 export interface TelegramChat {
   id: number;
   type: string;
+  title?: string;
+  username?: string;
 }
 
 export interface TelegramCallbackQuery {
