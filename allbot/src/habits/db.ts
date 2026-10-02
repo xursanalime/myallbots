@@ -13,6 +13,16 @@ export async function updateHabitSchedule(db: D1Database, habitId: number, userI
   await db.prepare(`UPDATE habits SET schedule_days = ? WHERE id = ? AND user_id = ?`).bind(scheduleDays, habitId, userId).run();
 }
 
+// Changes the reminder time (null = no reminder). If the new time is still ahead today the
+// reminder is re-armed; if it has already passed, today's reminder is skipped so editing a
+// habit never triggers an instant message.
+export async function updateHabitTime(db: D1Database, habitId: number, userId: number, time: string | null, today: string, nowTime: string): Promise<void> {
+  const rearm = !time || time > nowTime;
+  await db.prepare(
+    `UPDATE habits SET reminder_time = ?, last_reminded_date = ? WHERE id = ? AND user_id = ?`
+  ).bind(time, rearm ? null : today, habitId, userId).run();
+}
+
 // Number of active habits scheduled on the given date (rest days have none).
 export async function countScheduledHabits(db: D1Database, userId: number, date: string): Promise<number> {
   const row = await db.prepare(

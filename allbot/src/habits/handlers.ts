@@ -1,6 +1,6 @@
 import { Env, TelegramMessage, TelegramCallbackQuery } from '../types';
 import { sendMessage, editMessageText, answerCallbackQuery } from '../telegram';
-import { getHabitLogsForDate, createHabit, deactivateHabit, logHabit, calculateAndSaveDailyScore, getActiveHabits, updateHabitSchedule } from './db';
+import { getHabitLogsForDate, createHabit, deactivateHabit, logHabit, calculateAndSaveDailyScore, getActiveHabits, updateHabitSchedule, updateHabitTime } from './db';
 import { DAY_PRESETS, dayPickerKeyboard, dayPickerText, formatSchedule, parseScheduleDays, serializeScheduleDays } from './schedule';
 import { getCurrentDate, getHabitStats, formatStatsMessage } from './stats';
 
@@ -44,6 +44,10 @@ export async function handleHabitMessage(env: Env, session: Session, msg: Telegr
     }
     if (state.mode === 'habit_time_custom') {
       await handleHabitTimeInput(env, session, chatId, text);
+      return true;
+    }
+    if (state.mode === 'habit_time_edit_custom') {
+      await handleHabitTimeEditInput(env, session, chatId, userId, text);
       return true;
     }
     if (state.mode === 'habit_minimum') {
@@ -251,6 +255,59 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
       return true;
     }
     
+    if (action === 'h_edit') {
+      const habitId = parseInt(parts[1], 10);
+      await answerCallbackQuery(env, cq.id);
+      await showHabitEditMenu(env, chatId, userId, habitId, cq.message?.message_id);
+      return true;
+    }
+
+    if (action === 'h_manage_back') {
+      await answerCallbackQuery(env, cq.id);
+      await showHabitManagement(env, chatId, userId, cq.message?.message_id);
+      return true;
+    }
+
+    if (action === 'h_time_edit') {
+      const habitId = parseInt(parts[1], 10);
+      const habit = (await getActiveHabits(env.DB, userId)).find(h => h.id === habitId);
+      if (!habit) {
+        await answerCallbackQuery(env, cq.id, "Odat topilmadi");
+        return true;
+      }
+      await answerCallbackQuery(env, cq.id);
+      await editOrSend(env, chatId, cq.message?.message_id, `⏰ *${habit.name}*\n\nEslatma vaqtini tanlang (hozir: ${habit.reminder_time || "o'rnatilmagan"}):`, {
+        inline_keyboard: [
+          [{ text: "05:30", callback_data: `h_etime:${habitId}:05:30` }, { text: "07:00", callback_data: `h_etime:${habitId}:07:00` }, { text: "09:00", callback_data: `h_etime:${habitId}:09:00` }],
+          [{ text: "12:00", callback_data: `h_etime:${habitId}:12:00` }, { text: "18:00", callback_data: `h_etime:${habitId}:18:00` }, { text: "21:00", callback_data: `h_etime:${habitId}:21:00` }],
+          [{ text: "✏️ Boshqa vaqt", callback_data: `h_etime_custom:${habitId}` }, { text: "🔕 Eslatmasiz", callback_data: `h_etime:${habitId}:off` }],
+          [{ text: "◀️ Orqaga", callback_data: `h_edit:${habitId}` }]
+        ]
+      });
+      return true;
+    }
+
+    if (action === 'h_etime') {
+      const habitId = parseInt(parts[1], 10);
+      const time = parts[2] === 'off' ? null : parts.slice(2).join(':');
+      if (time !== null && !TIME_REGEX.test(time)) {
+        await answerCallbackQuery(env, cq.id, "Noto'g'ri vaqt");
+        return true;
+      }
+      await applyHabitTime(env, userId, habitId, time);
+      await answerCallbackQuery(env, cq.id, "Saqlandi");
+      await showHabitEditMenu(env, chatId, userId, habitId, cq.message?.message_id);
+      return true;
+    }
+
+    if (action === 'h_etime_custom') {
+      const habitId = parseInt(parts[1], 10);
+      session.userState = { mode: 'habit_time_edit_custom', habit_id: habitId };
+      await answerCallbackQuery(env, cq.id, "Vaqtni kiriting (HH:MM)");
+      await sendMessage(env, chatId, "✏️ Yangi vaqtni kiriting:\n\n*Format:* `HH:MM`\nMasalan: `06:30`, `14:00`, `22:30`");
+      return true;
+    }
+
     if (action === 'h_manage') {
       await showHabitManagement(env, chatId, userId);
       await answerCallbackQuery(env, cq.id);
@@ -412,7 +469,7 @@ async function askHabitTime(env: Env, chatId: number): Promise<void> {
 }
 
 async function handleHabitTimeInput(env: Env, session: Session, chatId: number, text: string): Promise<void> {
-  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const timeRegex = TIME_REGEX;
   let timeStr = text.trim();
   if (!timeRegex.test(timeStr)) {
     await sendMessage(env, chatId, "Iltimos, vaqtni to'g'ri formatda kiriting (Masalan, 07:00):");
@@ -446,27 +503,66 @@ async function handleHabitIfThenInput(env: Env, session: Session, chatId: number
   await sendMessage(env, chatId, "✅ Yangi odat muvaffaqiyatli saqlandi!\n\n📋 *Bugungi vazifalar* menyusidan tekshirishingiz mumkin.");
 }
 
-async function showHabitManagement(env: Env, chatId: number, userId: number): Promise<void> {
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+async function editOrSend(env: Env, chatId: number, messageId: number | undefined, text: string, replyMarkup: any): Promise<void> {
+  if (messageId) {
+    await editMessageText(env, chatId, messageId, text, { replyMarkup });
+  } else {
+    await sendMessage(env, chatId, text, { replyMarkup });
+  }
+}
+
+async function applyHabitTime(env: Env, userId: number, habitId: number, time: string | null): Promise<void> {
+  const now = new Date(Date.now() + 5 * 60 * 60 * 1000);  // Tashkent (UTC+5)
+  const nowTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+  await updateHabitTime(env.DB, habitId, userId, time, getCurrentDate(), nowTime);
+}
+
+async function handleHabitTimeEditInput(env: Env, session: Session, chatId: number, userId: number, text: string): Promise<void> {
+  const time = text.trim();
+  if (!TIME_REGEX.test(time)) {
+    await sendMessage(env, chatId, "Iltimos, vaqtni to'g'ri formatda kiriting (Masalan, 07:00):");
+    return;
+  }
+  const habitId = session.userState.habit_id;
+  session.userState = null;
+  await applyHabitTime(env, userId, habitId, time);
+  await showHabitEditMenu(env, chatId, userId, habitId);
+}
+
+async function showHabitEditMenu(env: Env, chatId: number, userId: number, habitId: number, messageId?: number): Promise<void> {
+  const habit = (await getActiveHabits(env.DB, userId)).find(h => h.id === habitId);
+  if (!habit) {
+    await editOrSend(env, chatId, messageId, "Odat topilmadi.", undefined);
+    return;
+  }
+  let text = `✏️ *${habit.name}*\n\n`;
+  text += `📅 Kunlar: ${formatSchedule(habit.schedule_days)}\n`;
+  text += `⏰ Eslatma vaqti: ${habit.reminder_time || "o'rnatilmagan"}`;
+  await editOrSend(env, chatId, messageId, text, {
+    inline_keyboard: [
+      [{ text: "📅 Kunlarni o'zgartirish", callback_data: `h_days_edit:${habit.id}` }],
+      [{ text: "⏰ Vaqtni o'zgartirish", callback_data: `h_time_edit:${habit.id}` }],
+      [{ text: "❌ O'chirish", callback_data: `h_del:${habit.id}` }],
+      [{ text: "◀️ Orqaga", callback_data: 'h_manage_back' }]
+    ]
+  });
+}
+
+async function showHabitManagement(env: Env, chatId: number, userId: number, messageId?: number): Promise<void> {
   const habits = await getActiveHabits(env.DB, userId);
   
   if (habits.length === 0) {
-    await sendMessage(env, chatId, "Sizda faol odatlar yo'q.");
+    await editOrSend(env, chatId, messageId, "Sizda faol odatlar yo'q.", undefined);
     return;
   }
 
-  let text = "⚙️ *Odatlarni boshqarish*\n\n";
-  habits.forEach(h => {
-    text += `• ${h.name} — 📅 ${formatSchedule(h.schedule_days)}\n`;
-  });
-  text += "\n📅 — kunlarni o'zgartirish, ❌ — o'chirish";
-  const keyboard: any[] = [];
-  
-  habits.forEach(h => {
-    keyboard.push([
-      { text: `📅 ${h.name}`, callback_data: `h_days_edit:${h.id}` },
-      { text: `❌`, callback_data: `h_del:${h.id}` }
-    ]);
-  });
+  const text = "⚙️ *Odatlarni boshqarish*\n\nO'zgartirish yoki o'chirish uchun odatni tanlang:";
+  const keyboard = habits.map(h => [{
+    text: `${h.name} · ${formatSchedule(h.schedule_days)}${h.reminder_time ? ' · ' + h.reminder_time : ''}`,
+    callback_data: `h_edit:${h.id}`
+  }]);
 
-  await sendMessage(env, chatId, text, { replyMarkup: { inline_keyboard: keyboard } });
+  await editOrSend(env, chatId, messageId, text, { inline_keyboard: keyboard });
 }
