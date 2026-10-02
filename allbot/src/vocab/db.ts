@@ -41,6 +41,10 @@ export async function ensureHabitColumns(db: D1Database) {
   if (!existing.has('last_reminded_date')) {
     await db.prepare("ALTER TABLE habits ADD COLUMN last_reminded_date TEXT").run();
   }
+  if (!existing.has('schedule_days')) {
+    // Comma-separated weekdays (0=Sun..6=Sat); NULL = every day
+    await db.prepare("ALTER TABLE habits ADD COLUMN schedule_days TEXT").run();
+  }
 }
 
 export async function initSchema(db: D1Database) {

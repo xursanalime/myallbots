@@ -101,6 +101,7 @@ export interface HabitRow {
   reminder_time: string | null;
   minimum_version_text: string | null;
   if_then_plan: string | null;
+  schedule_days: string | null;  // comma-separated weekdays (0=Sun..6=Sat); null = every day
   created_at: string;
   active: number;
 }

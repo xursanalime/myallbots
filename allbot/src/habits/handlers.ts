@@ -1,6 +1,7 @@
 import { Env, TelegramMessage, TelegramCallbackQuery } from '../types';
 import { sendMessage, editMessageText, answerCallbackQuery } from '../telegram';
-import { getHabitLogsForDate, createHabit, deactivateHabit, logHabit, calculateAndSaveDailyScore, getActiveHabits } from './db';
+import { getHabitLogsForDate, createHabit, deactivateHabit, logHabit, calculateAndSaveDailyScore, getActiveHabits, updateHabitSchedule, updateHabitTime } from './db';
+import { DAY_PRESETS, dayPickerKeyboard, dayPickerText, formatSchedule, parseScheduleDays, serializeScheduleDays } from './schedule';
 import { getCurrentDate, getHabitStats, formatStatsMessage } from './stats';
 
 type Session = any; // Assuming Session is defined globally or passed as any for now
@@ -43,6 +44,10 @@ export async function handleHabitMessage(env: Env, session: Session, msg: Telegr
     }
     if (state.mode === 'habit_time_custom') {
       await handleHabitTimeInput(env, session, chatId, text);
+      return true;
+    }
+    if (state.mode === 'habit_time_edit_custom') {
+      await handleHabitTimeEditInput(env, session, chatId, userId, text);
       return true;
     }
     if (state.mode === 'habit_minimum') {
@@ -117,8 +122,74 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
 
     const state = session.userState;
 
+    if (action === 'h_day' || action === 'h_days_preset' || action === 'h_days_ok') {
+      const editing = state && typeof state === 'object' && state.mode === 'habit_days_edit';
+      const creating = state && typeof state === 'object' && state.mode === 'habit_days';
+      if (!editing && !creating) {
+        await answerCallbackQuery(env, cq.id, "Bu tanlov muddati tugagan");
+        return true;
+      }
+
+      if (action === 'h_day' || action === 'h_days_preset') {
+        let days: number[] = Array.isArray(state.days) ? state.days : [];
+        if (action === 'h_day') {
+          const day = parseInt(parts[1], 10);
+          days = days.includes(day) ? days.filter(d => d !== day) : [...days, day];
+        } else {
+          days = DAY_PRESETS[parts[1]]?.days ?? days;
+        }
+        state.days = days;
+        session.userState = state;
+        if (cq.message?.message_id) {
+          await editMessageText(env, chatId, cq.message.message_id, dayPickerText(days), {
+            replyMarkup: { inline_keyboard: dayPickerKeyboard(days) }
+          });
+        }
+        await answerCallbackQuery(env, cq.id);
+        return true;
+      }
+
+      // h_days_ok
+      if (!state.days || state.days.length === 0) {
+        await answerCallbackQuery(env, cq.id, "Kamida bitta kun tanlang!");
+        return true;
+      }
+      const scheduleDays = serializeScheduleDays(state.days);
+      if (editing) {
+        await updateHabitSchedule(env.DB, state.habit_id, userId, scheduleDays);
+        session.userState = null;
+        await answerCallbackQuery(env, cq.id, "Saqlandi");
+        await editMessageText(env, chatId, cq.message?.message_id!, `✅ *${state.name}* kunlari yangilandi: ${formatSchedule(scheduleDays)}`);
+        return true;
+      }
+
+      state.mode = 'habit_time';
+      state.schedule_days = scheduleDays;
+      session.userState = state;
+      await answerCallbackQuery(env, cq.id);
+      await editMessageText(env, chatId, cq.message?.message_id!, `📅 Kunlar: *${formatSchedule(scheduleDays)}*`);
+      await askHabitTime(env, chatId);
+      return true;
+    }
+
+    if (action === 'h_days_edit') {
+      const habitId = parseInt(parts[1], 10);
+      const habit = (await getActiveHabits(env.DB, userId)).find(h => h.id === habitId);
+      if (!habit) {
+        await answerCallbackQuery(env, cq.id, "Odat topilmadi");
+        return true;
+      }
+      const current = parseScheduleDays(habit.schedule_days) ?? DAY_PRESETS.all.days;
+      session.userState = { mode: 'habit_days_edit', habit_id: habit.id, name: habit.name, days: current };
+      await answerCallbackQuery(env, cq.id);
+      await sendMessage(env, chatId, `*${habit.name}*\n\n${dayPickerText(current)}`, {
+        replyMarkup: { inline_keyboard: dayPickerKeyboard(current) }
+      });
+      return true;
+    }
+
     if (action === 'h_time') {
-      const selectedTime = parts[1];
+      const selectedTime = parts.slice(1).join(':');
       if (state && typeof state === 'object' && state.mode === 'habit_time') {
         state.mode = 'habit_minimum';
         state.time = selectedTime;
@@ -175,7 +246,7 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
 
     if (action === 'h_ifthen_skip') {
       if (state && typeof state === 'object' && state.mode === 'habit_ifthen') {
-        await createHabit(env.DB, userId, state.name, state.time, state.minimum, null);
+        await createHabit(env.DB, userId, state.name, state.time, state.minimum, null, state.schedule_days);
         await env.DB.prepare("UPDATE users SET start_date = COALESCE(start_date, date('now', '+5 hours')) WHERE user_id = ?").bind(userId).run();
         session.userState = null;
         await sendMessage(env, chatId, "✅ Yangi odat muvaffaqiyatli saqlandi!\n\n📋 *Bugungi vazifalar* menyusidan tekshirishingiz mumkin.");
@@ -184,6 +255,59 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
       return true;
     }
     
+    if (action === 'h_edit') {
+      const habitId = parseInt(parts[1], 10);
+      await answerCallbackQuery(env, cq.id);
+      await showHabitEditMenu(env, chatId, userId, habitId, cq.message?.message_id);
+      return true;
+    }
+
+    if (action === 'h_manage_back') {
+      await answerCallbackQuery(env, cq.id);
+      await showHabitManagement(env, chatId, userId, cq.message?.message_id);
+      return true;
+    }
+
+    if (action === 'h_time_edit') {
+      const habitId = parseInt(parts[1], 10);
+      const habit = (await getActiveHabits(env.DB, userId)).find(h => h.id === habitId);
+      if (!habit) {
+        await answerCallbackQuery(env, cq.id, "Odat topilmadi");
+        return true;
+      }
+      await answerCallbackQuery(env, cq.id);
+      await editOrSend(env, chatId, cq.message?.message_id, `⏰ *${habit.name}*\n\nEslatma vaqtini tanlang (hozir: ${habit.reminder_time || "o'rnatilmagan"}):`, {
+        inline_keyboard: [
+          [{ text: "05:30", callback_data: `h_etime:${habitId}:05:30` }, { text: "07:00", callback_data: `h_etime:${habitId}:07:00` }, { text: "09:00", callback_data: `h_etime:${habitId}:09:00` }],
+          [{ text: "12:00", callback_data: `h_etime:${habitId}:12:00` }, { text: "18:00", callback_data: `h_etime:${habitId}:18:00` }, { text: "21:00", callback_data: `h_etime:${habitId}:21:00` }],
+          [{ text: "✏️ Boshqa vaqt", callback_data: `h_etime_custom:${habitId}` }, { text: "🔕 Eslatmasiz", callback_data: `h_etime:${habitId}:off` }],
+          [{ text: "◀️ Orqaga", callback_data: `h_edit:${habitId}` }]
+        ]
+      });
+      return true;
+    }
+
+    if (action === 'h_etime') {
+      const habitId = parseInt(parts[1], 10);
+      const time = parts[2] === 'off' ? null : parts.slice(2).join(':');
+      if (time !== null && !TIME_REGEX.test(time)) {
+        await answerCallbackQuery(env, cq.id, "Noto'g'ri vaqt");
+        return true;
+      }
+      await applyHabitTime(env, userId, habitId, time);
+      await answerCallbackQuery(env, cq.id, "Saqlandi");
+      await showHabitEditMenu(env, chatId, userId, habitId, cq.message?.message_id);
+      return true;
+    }
+
+    if (action === 'h_etime_custom') {
+      const habitId = parseInt(parts[1], 10);
+      session.userState = { mode: 'habit_time_edit_custom', habit_id: habitId };
+      await answerCallbackQuery(env, cq.id, "Vaqtni kiriting (HH:MM)");
+      await sendMessage(env, chatId, "✏️ Yangi vaqtni kiriting:\n\n*Format:* `HH:MM`\nMasalan: `06:30`, `14:00`, `22:30`");
+      return true;
+    }
+
     if (action === 'h_manage') {
       await showHabitManagement(env, chatId, userId);
       await answerCallbackQuery(env, cq.id);
@@ -326,7 +450,13 @@ async function startHabitCreation(env: Env, session: Session, chatId: number): P
 }
 
 async function handleHabitNameInput(env: Env, session: Session, chatId: number, userId: number, text: string): Promise<void> {
-  session.userState = { mode: 'habit_time', name: text };
+  session.userState = { mode: 'habit_days', name: text, days: DAY_PRESETS.all.days };
+  await sendMessage(env, chatId, dayPickerText(session.userState.days), {
+    replyMarkup: { inline_keyboard: dayPickerKeyboard(session.userState.days) }
+  });
+}
+
+async function askHabitTime(env: Env, chatId: number): Promise<void> {
   await sendMessage(env, chatId, "⏰ Odat uchun eslatma vaqtini tanlang yoki o'zingiz kiriting:", {
     replyMarkup: {
       inline_keyboard: [
@@ -339,7 +469,7 @@ async function handleHabitNameInput(env: Env, session: Session, chatId: number, 
 }
 
 async function handleHabitTimeInput(env: Env, session: Session, chatId: number, text: string): Promise<void> {
-  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const timeRegex = TIME_REGEX;
   let timeStr = text.trim();
   if (!timeRegex.test(timeStr)) {
     await sendMessage(env, chatId, "Iltimos, vaqtni to'g'ri formatda kiriting (Masalan, 07:00):");
@@ -367,26 +497,72 @@ async function handleHabitMinimumInput(env: Env, session: Session, chatId: numbe
 
 async function handleHabitIfThenInput(env: Env, session: Session, chatId: number, userId: number, text: string): Promise<void> {
   const state = session.userState;
-  await createHabit(env.DB, userId, state.name, state.time, state.minimum, text);
+  await createHabit(env.DB, userId, state.name, state.time, state.minimum, text, state.schedule_days);
   await env.DB.prepare("UPDATE users SET start_date = COALESCE(start_date, date('now', '+5 hours')) WHERE user_id = ?").bind(userId).run();
   session.userState = null;
   await sendMessage(env, chatId, "✅ Yangi odat muvaffaqiyatli saqlandi!\n\n📋 *Bugungi vazifalar* menyusidan tekshirishingiz mumkin.");
 }
 
-async function showHabitManagement(env: Env, chatId: number, userId: number): Promise<void> {
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+async function editOrSend(env: Env, chatId: number, messageId: number | undefined, text: string, replyMarkup: any): Promise<void> {
+  if (messageId) {
+    await editMessageText(env, chatId, messageId, text, { replyMarkup });
+  } else {
+    await sendMessage(env, chatId, text, { replyMarkup });
+  }
+}
+
+async function applyHabitTime(env: Env, userId: number, habitId: number, time: string | null): Promise<void> {
+  const now = new Date(Date.now() + 5 * 60 * 60 * 1000);  // Tashkent (UTC+5)
+  const nowTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+  await updateHabitTime(env.DB, habitId, userId, time, getCurrentDate(), nowTime);
+}
+
+async function handleHabitTimeEditInput(env: Env, session: Session, chatId: number, userId: number, text: string): Promise<void> {
+  const time = text.trim();
+  if (!TIME_REGEX.test(time)) {
+    await sendMessage(env, chatId, "Iltimos, vaqtni to'g'ri formatda kiriting (Masalan, 07:00):");
+    return;
+  }
+  const habitId = session.userState.habit_id;
+  session.userState = null;
+  await applyHabitTime(env, userId, habitId, time);
+  await showHabitEditMenu(env, chatId, userId, habitId);
+}
+
+async function showHabitEditMenu(env: Env, chatId: number, userId: number, habitId: number, messageId?: number): Promise<void> {
+  const habit = (await getActiveHabits(env.DB, userId)).find(h => h.id === habitId);
+  if (!habit) {
+    await editOrSend(env, chatId, messageId, "Odat topilmadi.", undefined);
+    return;
+  }
+  let text = `✏️ *${habit.name}*\n\n`;
+  text += `📅 Kunlar: ${formatSchedule(habit.schedule_days)}\n`;
+  text += `⏰ Eslatma vaqti: ${habit.reminder_time || "o'rnatilmagan"}`;
+  await editOrSend(env, chatId, messageId, text, {
+    inline_keyboard: [
+      [{ text: "📅 Kunlarni o'zgartirish", callback_data: `h_days_edit:${habit.id}` }],
+      [{ text: "⏰ Vaqtni o'zgartirish", callback_data: `h_time_edit:${habit.id}` }],
+      [{ text: "❌ O'chirish", callback_data: `h_del:${habit.id}` }],
+      [{ text: "◀️ Orqaga", callback_data: 'h_manage_back' }]
+    ]
+  });
+}
+
+async function showHabitManagement(env: Env, chatId: number, userId: number, messageId?: number): Promise<void> {
   const habits = await getActiveHabits(env.DB, userId);
   
   if (habits.length === 0) {
-    await sendMessage(env, chatId, "Sizda faol odatlar yo'q.");
+    await editOrSend(env, chatId, messageId, "Sizda faol odatlar yo'q.", undefined);
     return;
   }
 
-  let text = "⚙️ *Odatlarni boshqarish*\n\nO'chirish uchun odatni tanlang:";
-  const keyboard: any[] = [];
-  
-  habits.forEach(h => {
-    keyboard.push([{ text: `❌ ${h.name}`, callback_data: `h_del:${h.id}` }]);
-  });
+  const text = "⚙️ *Odatlarni boshqarish*\n\nO'zgartirish yoki o'chirish uchun odatni tanlang:";
+  const keyboard = habits.map(h => [{
+    text: `${h.name} · ${formatSchedule(h.schedule_days)}${h.reminder_time ? ' · ' + h.reminder_time : ''}`,
+    callback_data: `h_edit:${h.id}`
+  }]);
 
-  await sendMessage(env, chatId, text, { replyMarkup: { inline_keyboard: keyboard } });
+  await editOrSend(env, chatId, messageId, text, { inline_keyboard: keyboard });
 }

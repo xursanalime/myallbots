@@ -1,11 +1,34 @@
 import { Env, HabitRow, HabitLogRow, HabitStatus, DailyScoreRow } from '../types';
+import { SCHEDULED_ON_SQL } from './schedule';
 
-export async function createHabit(db: D1Database, userId: number, name: string, reminderTime?: string | null, minimumText?: string | null, ifThenPlan?: string | null): Promise<number> {
+export async function createHabit(db: D1Database, userId: number, name: string, reminderTime?: string | null, minimumText?: string | null, ifThenPlan?: string | null, scheduleDays?: string | null): Promise<number> {
   const result = await db.prepare(
-    `INSERT INTO habits (user_id, name, reminder_time, minimum_version_text, if_then_plan) 
-     VALUES (?, ?, ?, ?, ?) RETURNING id`
-  ).bind(userId, name, reminderTime || null, minimumText || null, ifThenPlan || null).first();
+    `INSERT INTO habits (user_id, name, reminder_time, minimum_version_text, if_then_plan, schedule_days) 
+     VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
+  ).bind(userId, name, reminderTime || null, minimumText || null, ifThenPlan || null, scheduleDays || null).first();
   return result?.id as number;
+}
+
+export async function updateHabitSchedule(db: D1Database, habitId: number, userId: number, scheduleDays: string | null): Promise<void> {
+  await db.prepare(`UPDATE habits SET schedule_days = ? WHERE id = ? AND user_id = ?`).bind(scheduleDays, habitId, userId).run();
+}
+
+// Changes the reminder time (null = no reminder). If the new time is still ahead today the
+// reminder is re-armed; if it has already passed, today's reminder is skipped so editing a
+// habit never triggers an instant message.
+export async function updateHabitTime(db: D1Database, habitId: number, userId: number, time: string | null, today: string, nowTime: string): Promise<void> {
+  const rearm = !time || time > nowTime;
+  await db.prepare(
+    `UPDATE habits SET reminder_time = ?, last_reminded_date = ? WHERE id = ? AND user_id = ?`
+  ).bind(time, rearm ? null : today, habitId, userId).run();
+}
+
+// Number of active habits scheduled on the given date (rest days have none).
+export async function countScheduledHabits(db: D1Database, userId: number, date: string): Promise<number> {
+  const row = await db.prepare(
+    `SELECT COUNT(*) as cnt FROM habits h WHERE h.user_id = ? AND h.active = 1 AND ${SCHEDULED_ON_SQL}`
+  ).bind(userId, date).first<{ cnt: number }>();
+  return row?.cnt ?? 0;
 }
 
 export async function getActiveHabits(db: D1Database, userId: number): Promise<HabitRow[]> {
@@ -40,9 +63,9 @@ export async function getHabitLogsForDate(db: D1Database, userId: number, date: 
             hl.note as log_note 
      FROM habits h 
      LEFT JOIN habit_logs hl ON h.id = hl.habit_id AND hl.date = ? 
-     WHERE h.user_id = ? AND h.active = 1 
+     WHERE h.user_id = ? AND h.active = 1 AND ${SCHEDULED_ON_SQL}
      ORDER BY h.created_at ASC`
-  ).bind(date, userId).all<HabitRow & { status: HabitStatus; log_note: string | null }>();
+  ).bind(date, userId, date).all<HabitRow & { status: HabitStatus; log_note: string | null }>();
   return results || [];
 }
 
@@ -93,11 +116,18 @@ export async function calculateAndSaveDailyScore(db: D1Database, userId: number,
   // Calculate streak count (recalculating from yesterday)
   let streakCount = isSuccessDay;
   if (isSuccessDay === 1) {
-    const yesterday = new Date(new Date(date).getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const prevScore = await db.prepare(
-      `SELECT streak_count FROM daily_scores WHERE user_id = ? AND date = ?`
-    ).bind(userId, yesterday).first<{ streak_count: number }>();
-    
+    // Look back to the previous day on which habits were scheduled: rest days
+    // (no habits planned) must not break the streak.
+    let prevDate = date;
+    let prevScore: { streak_count: number } | null = null;
+    for (let i = 0; i < 7; i++) {
+      prevDate = new Date(new Date(prevDate).getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      prevScore = await db.prepare(
+        `SELECT streak_count FROM daily_scores WHERE user_id = ? AND date = ?`
+      ).bind(userId, prevDate).first<{ streak_count: number }>();
+      if (prevScore || await countScheduledHabits(db, userId, prevDate) > 0) break;
+    }
+
     if (prevScore && prevScore.streak_count > 0) {
       streakCount = prevScore.streak_count + 1;
     }
@@ -136,6 +166,7 @@ export async function getHabitsNeedingReminder(db: D1Database, currentTime: stri
      WHERE h.active = 1 
        AND u.notify = 1 
        AND h.reminder_time IS NOT NULL
+       AND ${SCHEDULED_ON_SQL}
        AND h.reminder_time <= ?
        AND (h.last_reminded_date IS NULL OR h.last_reminded_date != ?)
        AND NOT EXISTS (
@@ -144,7 +175,7 @@ export async function getHabitsNeedingReminder(db: D1Database, currentTime: stri
            AND hl.date = ? 
            AND hl.status IN ('done', 'minimum')
        )`
-  ).bind(currentTime, currentDate, currentDate).all<HabitRow & { first_name: string | null }>();
+  ).bind(currentDate, currentTime, currentDate, currentDate).all<HabitRow & { first_name: string | null }>();
   return results || [];
 }
 
