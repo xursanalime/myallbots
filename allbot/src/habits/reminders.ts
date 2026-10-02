@@ -8,11 +8,13 @@ import {
   markMorningMessageSent,
   markEveningMessageSent,
   getUsersForChannelReport,
-  markChannelReportSent
+  markChannelReportSent,
+  countScheduledHabits
 } from './db';
 import { calculateDayNumber } from './stats';
 import { generateDailyAnalysis, buildFullUserContext } from '../ai/analysis';
 import { sendChannelReport } from './channel_report';
+import { SCHEDULED_ON_SQL } from './schedule';
 
 export async function runHabitScheduledChecks(env: Env): Promise<void> {
   const now = new Date();
@@ -74,8 +76,8 @@ async function sendMorningMessages(env: Env, currentDate: string): Promise<void>
     
     // Check habits count
     const { results: hRes } = await env.DB.prepare(
-      `SELECT count(*) as cnt FROM habits WHERE user_id = ? AND active = 1`
-    ).bind(user.user_id).all<{cnt: number}>();
+      `SELECT count(*) as cnt FROM habits h WHERE h.user_id = ? AND h.active = 1 AND ${SCHEDULED_ON_SQL}`
+    ).bind(user.user_id, currentDate).all<{cnt: number}>();
     const habitCount = hRes && hRes.length > 0 ? hRes[0].cnt : 0;
 
     // Check due words count
@@ -115,9 +117,9 @@ async function sendEveningMessages(env: Env, currentDate: string): Promise<void>
     const { results: pendingHabits } = await env.DB.prepare(
       `SELECT h.name FROM habits h 
        LEFT JOIN habit_logs hl ON h.id = hl.habit_id AND hl.date = ? 
-       WHERE h.user_id = ? AND h.active = 1 
+       WHERE h.user_id = ? AND h.active = 1 AND ${SCHEDULED_ON_SQL}
          AND (hl.status IS NULL OR hl.status = 'pending' OR hl.status = 'later')`
-    ).bind(currentDate, user.user_id).all<{name: string}>();
+    ).bind(currentDate, user.user_id, currentDate).all<{name: string}>();
     
     let text = `🌙 *Kun yakunlanmoqda.*\n\n`;
     if (pendingHabits && pendingHabits.length > 0) {
@@ -126,6 +128,8 @@ async function sendEveningMessages(env: Env, currentDate: string): Promise<void>
         text += `  • ${h.name}\n`;
       });
       text += `\n_Eng kichik (minimum) versiyasini bajarish ham yetarli._\n\n`;
+    } else if (await countScheduledHabits(env.DB, user.user_id, currentDate) === 0) {
+      text += `Bugun rejalashtirilgan odat yo'q — dam olish kuni. 😌\n\n`;
     } else {
       text += `Bugungi barcha vazifalarni a'lo darajada bajarganingiz bilan tabriklayman! 🎉\n\n`;
     }
