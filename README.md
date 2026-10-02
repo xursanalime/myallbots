@@ -27,6 +27,7 @@
 ### 📋 Odatlar moduli
 - Yangi odat qo'shish (nom, **hafta kunlari**, eslatma vaqti, minimum versiya, If-Then rejasi)
 - Haftada necha marta/qaysi kunlari bajarilishini tanlash (masalan Du-Chor-Ju); ⚙️ Boshqarish orqali keyin o'zgartirish mumkin. Rejalashtirilmagan kunlarda odat vazifalarda ko'rinmaydi, eslatma kelmaydi va streak buzilmaydi
+- Reading/Writing/Listening/Speaking/vocabulary/Youtube odatlari "bajarildi" qilinganda bot natija/izoh so'raydi (`allbot/src/habits/notes.ts` dagi `NOTE_HABIT_KEYWORDS` ro'yxati orqali sozlanadi); izoh `habit_logs.note` ga yoziladi va kanal hisobotida ko'rinadi
 - Bugungi vazifalar ro'yxati va holati (`✅ Bajarildi / 🟡 Minimum / ⏭ O'tkazish / ⏰ Keyinroq`)
 - Kunlik ball va streak (uzluksizlik) hisobi
 - Avtomatik tonggi (07:00) va kechki (22:00) eslatmalar
