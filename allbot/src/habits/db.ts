@@ -31,9 +31,10 @@ export async function countScheduledHabits(db: D1Database, userId: number, date:
   return row?.cnt ?? 0;
 }
 
+// Habits are ordered by reminder time; habits without a time go last.
 export async function getActiveHabits(db: D1Database, userId: number): Promise<HabitRow[]> {
   const { results } = await db.prepare(
-    `SELECT * FROM habits WHERE user_id = ? AND active = 1 ORDER BY created_at ASC`
+    `SELECT * FROM habits WHERE user_id = ? AND active = 1 ORDER BY (reminder_time IS NULL), reminder_time ASC, created_at ASC`
   ).bind(userId).all<HabitRow>();
   return results || [];
 }
@@ -82,7 +83,7 @@ export async function getHabitLogsForDate(db: D1Database, userId: number, date: 
      FROM habits h 
      LEFT JOIN habit_logs hl ON h.id = hl.habit_id AND hl.date = ? 
      WHERE h.user_id = ? AND h.active = 1 AND ${SCHEDULED_ON_SQL}
-     ORDER BY h.created_at ASC`
+     ORDER BY (h.reminder_time IS NULL), h.reminder_time ASC, h.created_at ASC`
   ).bind(date, userId, date).all<HabitRow & { status: HabitStatus; log_note: string | null }>();
   return results || [];
 }
