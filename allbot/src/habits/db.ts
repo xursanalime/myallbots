@@ -31,9 +31,10 @@ export async function countScheduledHabits(db: D1Database, userId: number, date:
   return row?.cnt ?? 0;
 }
 
+// Habits are ordered by reminder time; habits without a time go last.
 export async function getActiveHabits(db: D1Database, userId: number): Promise<HabitRow[]> {
   const { results } = await db.prepare(
-    `SELECT * FROM habits WHERE user_id = ? AND active = 1 ORDER BY created_at ASC`
+    `SELECT * FROM habits WHERE user_id = ? AND active = 1 ORDER BY (reminder_time IS NULL), reminder_time ASC, created_at ASC`
   ).bind(userId).all<HabitRow>();
   return results || [];
 }
@@ -51,9 +52,27 @@ export async function logHabit(db: D1Database, habitId: number, date: string, st
      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
      ON CONFLICT(habit_id, date) DO UPDATE SET 
      status = excluded.status, 
-     note = excluded.note, 
+     note = COALESCE(excluded.note, habit_logs.note), 
      logged_at = CURRENT_TIMESTAMP`
   ).bind(habitId, date, status, note || null).run();
+}
+
+export async function getHabitOwnedBy(db: D1Database, habitId: number, userId: number): Promise<{ id: number; name: string } | null> {
+  return await db.prepare(
+    `SELECT id, name FROM habits WHERE id = ? AND user_id = ? AND active = 1`
+  ).bind(habitId, userId).first<{ id: number; name: string }>();
+}
+
+// Appends a note to the habit's log for that date (new line if a note already exists).
+// Only writes if the habit belongs to the user. Returns false when no log row was updated.
+export async function appendHabitNote(db: D1Database, userId: number, habitId: number, date: string, note: string): Promise<boolean> {
+  const result = await db.prepare(
+    `UPDATE habit_logs
+     SET note = CASE WHEN note IS NULL OR note = '' THEN ? ELSE note || char(10) || ? END
+     WHERE habit_id = ? AND date = ?
+       AND habit_id IN (SELECT id FROM habits WHERE id = ? AND user_id = ?)`
+  ).bind(note, note, habitId, date, habitId, userId).run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function getHabitLogsForDate(db: D1Database, userId: number, date: string): Promise<Array<HabitRow & { status: HabitStatus; log_note: string | null }>> {
@@ -64,7 +83,7 @@ export async function getHabitLogsForDate(db: D1Database, userId: number, date: 
      FROM habits h 
      LEFT JOIN habit_logs hl ON h.id = hl.habit_id AND hl.date = ? 
      WHERE h.user_id = ? AND h.active = 1 AND ${SCHEDULED_ON_SQL}
-     ORDER BY h.created_at ASC`
+     ORDER BY (h.reminder_time IS NULL), h.reminder_time ASC, h.created_at ASC`
   ).bind(date, userId, date).all<HabitRow & { status: HabitStatus; log_note: string | null }>();
   return results || [];
 }

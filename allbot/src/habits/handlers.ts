@@ -1,6 +1,7 @@
 import { Env, TelegramMessage, TelegramCallbackQuery } from '../types';
 import { sendMessage, editMessageText, answerCallbackQuery } from '../telegram';
 import { getHabitLogsForDate, createHabit, deactivateHabit, logHabit, calculateAndSaveDailyScore, getActiveHabits, updateHabitSchedule, updateHabitTime } from './db';
+import { getAwaitingNote, maybeAskForNote } from './notes';
 import { DAY_PRESETS, dayPickerKeyboard, dayPickerText, formatSchedule, parseScheduleDays, serializeScheduleDays } from './schedule';
 import { getCurrentDate, getHabitStats, formatStatsMessage } from './stats';
 
@@ -93,6 +94,22 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
       
       // Return to compact list
       await showTodayTasks(env, chatId, userId, cq.message?.message_id);
+
+      if (status === 'done') {
+        await maybeAskForNote(env, session, chatId, userId, habitId, date);
+      }
+      return true;
+    }
+
+    if (action === 'h_note_skip') {
+      // Clear only the question this button belongs to; a stale button must not cancel a newer one
+      const pending = getAwaitingNote(session.userState);
+      const matches = pending && pending.habit_id === parseInt(parts[1], 10) && pending.date === parts[2];
+      if (matches) session.userState = null;
+      await answerCallbackQuery(env, cq.id, matches ? "O'tkazib yuborildi" : undefined);
+      if (cq.message?.message_id) {
+        await editMessageText(env, chatId, cq.message.message_id, "Izoh o'tkazib yuborildi.", { parseMode: null });
+      }
       return true;
     }
 

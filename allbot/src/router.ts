@@ -9,7 +9,17 @@ import { handleAiMessage, handleAiCallback, showAiMenu } from './ai/handlers';
 import { getHabitStats, formatStatsMessage, getCurrentDate } from './habits/stats';
 import { setChannelId, setChannelReportEnabled, resetAllUserStats } from './habits/db';
 import { sendChannelReport } from './habits/channel_report';
-import { settingsKb, settingsText } from './vocab/handlers';
+import { settingsKb, settingsText, vocabMenu, backMenu } from './vocab/handlers';
+import { getAwaitingNote, isNoteExpired, handleNoteInput } from './habits/notes';
+
+// Reply-keyboard buttons (main menu + vocab menus) and commands: these cancel a pending habit note
+const NAV_BUTTONS = new Set(
+  [mainMenu(), vocabMenu(), backMenu()].flatMap((m: any) => (m.keyboard ?? []).flat().map((b: any) => b.text as string))
+);
+function isNavigationInput(text: string): boolean {
+  return text.startsWith('/') || NAV_BUTTONS.has(text) || text.includes('Asosiy menyu') ||
+    /^\u{1F4E6} Quti \d/u.test(text) || text.startsWith('\u{1F4DD} Test');
+}
 
 function extractChatId(update: TelegramUpdate): number | null {
   const message = update.message || update.edited_message || update.channel_post;
@@ -47,6 +57,17 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
   const uid = chatId;
   const text = msg.text ?? '';
   const firstName = msg.from?.first_name;
+
+  // A habit result/comment is awaited: plain text is the note; commands/buttons cancel it
+  const pendingNote = getAwaitingNote(session.userState);
+  if (pendingNote) {
+    if (isNoteExpired(pendingNote) || isNavigationInput(text) || msg.forward_from_chat) {
+      session.userState = null;
+    } else {
+      await handleNoteInput(env, session, chatId, uid, text);
+      return;
+    }
+  }
 
   // /start — universal entry point
   if (text.startsWith('/start')) {
@@ -226,6 +247,12 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
 
 async function handleCallback(env: Env, session: Session, cq: TelegramCallbackQuery): Promise<void> {
   const data = cq.data ?? '';
+
+  // Any button other than the note's own "skip" cancels a pending habit note
+  // (h_done then starts a new question if the newly marked habit needs one)
+  if (getAwaitingNote(session.userState) && !data.startsWith('h_note_skip:')) {
+    session.userState = null;
+  }
 
   // Route by prefix
   if (data.startsWith('h_')) {
