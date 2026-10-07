@@ -105,3 +105,17 @@ export async function sendDocument(env: Env, chatId: number | string, filename: 
 
   return await response.json();
 }
+
+export async function sendAudio(env: Env, chatId: number | string, audio: ArrayBuffer, title: string): Promise<any> {
+  const formData = new FormData();
+  formData.append('chat_id', chatId.toString());
+  formData.append('title', title);
+  formData.append('performer', 'Talaffuz');
+  formData.append('audio', new Blob([audio], { type: 'audio/mpeg' }), 'pronunciation.mp3');
+
+  const response = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendAudio`, {
+    method: 'POST',
+    body: formData
+  });
+  return await response.json();
+}

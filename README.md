@@ -40,6 +40,7 @@
 - **Gamifikatsiya**: XP, darajalar, nishonlar (badges), reyting jadvali
 - Sinonimlar qo'llab-quvvatlash: `allow, permit, let = ruxsat`
 - So'z qidirish
+- Test savolida "🔊 Talaffuzni eshitish" tugmasi: to'g'ri javobning inglizcha talaffuzi audio (mp3) ko'rinishida yuboriladi
 - Haftalik xulosa va re-engagement eslatmalari
 
 ### 🤖 AI Yordamchi

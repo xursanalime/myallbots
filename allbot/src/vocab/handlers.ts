@@ -1,5 +1,6 @@
 import { Env, Session, TelegramMessage, TelegramCallbackQuery } from '../types';
-import { replyKeyboard, inlineKeyboard, sendMessage, editMessageText, sendDocument, answerCallbackQuery } from '../telegram';
+import { replyKeyboard, inlineKeyboard, sendMessage, editMessageText, sendDocument, sendAudio, answerCallbackQuery } from '../telegram';
+import { fetchPronunciation } from './pronounce';
 import { 
   countBox, countDueBox, getAllWords, getNotify, getFreeMode, 
   wordsNew, wordsDue, secondsUntilDue, secondsUntilDueBox, wordsInBox,
@@ -221,6 +222,7 @@ export async function askQuiz(env: Env, session: Session, uid: number, chatId: n
   const pct = Math.floor(quiz.index / total * 100);
   const text = `*${curI}/${total}*  \`[${bar(quiz.index, total)}]\`  ${pct}%\n\n\u{1F1FA}\u{1F1FF} *${esc(uz.toUpperCase())}*\n\n\u2753 To'g'ri tarjimani tanlang:`;
   const kbRows = options.map((opt, i) => [{ text: opt, callback_data: `qz_${i}` }]);
+  kbRows.push([{ text: "\u{1F50A} Talaffuzni eshitish", callback_data: "say_q" }]);
   await sendMessage(env, chatId, text, { replyMarkup: inlineKeyboard(kbRows) });
 }
 
@@ -516,6 +518,21 @@ export async function handleVocabCallback(env: Env, session: Session, cq: Telegr
   const data = cq.data ?? "";
   const callbackId = cq.id;
   
+  if (data === "say_q") {
+    const word = session.quizState?.currentCorrect;
+    if (!word) {
+      await answerCallbackQuery(env, callbackId, "\u26A0\uFE0F Test tugagan yoki eskirgan.");
+      return true;
+    }
+    await answerCallbackQuery(env, callbackId, "\u{1F50A} Yuklanmoqda...");
+    const audio = await fetchPronunciation(word);
+    const sent = audio ? await sendAudio(env, chatId, audio, word) : null;
+    if (!sent?.ok) {
+      await sendMessage(env, chatId, "\u26A0\uFE0F Talaffuzni hozir yuklab bo'lmadi. Keyinroq urinib ko'ring.", { parseMode: null });
+    }
+    return true;
+  }
+
   if (data.startsWith("qz_")) {
     const idx = parseInt(data.split("_")[1], 10);
     const quiz = session.quizState;
