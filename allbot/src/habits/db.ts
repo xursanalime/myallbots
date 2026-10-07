@@ -46,6 +46,12 @@ export async function deactivateHabit(db: D1Database, habitId: number, userId: n
   return result.success;
 }
 
+// Deactivates every active habit of the user (soft delete, like deactivateHabit: logs/stats are kept).
+export async function deactivateAllHabits(db: D1Database, userId: number): Promise<number> {
+  const result = await db.prepare(`UPDATE habits SET active = 0 WHERE user_id = ? AND active = 1`).bind(userId).run();
+  return result.meta?.changes ?? 0;
+}
+
 export async function logHabit(db: D1Database, habitId: number, date: string, status: HabitStatus, note?: string | null): Promise<void> {
   await db.prepare(
     `INSERT INTO habit_logs (habit_id, date, status, note, logged_at) 

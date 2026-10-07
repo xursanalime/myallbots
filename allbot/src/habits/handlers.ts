@@ -1,6 +1,6 @@
 import { Env, TelegramMessage, TelegramCallbackQuery } from '../types';
 import { sendMessage, editMessageText, answerCallbackQuery } from '../telegram';
-import { getHabitLogsForDate, createHabit, deactivateHabit, logHabit, calculateAndSaveDailyScore, getActiveHabits, updateHabitSchedule, updateHabitTime } from './db';
+import { getHabitLogsForDate, createHabit, deactivateHabit, logHabit, calculateAndSaveDailyScore, getActiveHabits, updateHabitSchedule, updateHabitTime, deactivateAllHabits } from './db';
 import { getAwaitingNote, maybeAskForNote } from './notes';
 import { DAY_PRESETS, dayPickerKeyboard, dayPickerText, formatSchedule, parseScheduleDays, serializeScheduleDays } from './schedule';
 import { getCurrentDate, getHabitStats, formatStatsMessage } from './stats';
@@ -331,6 +331,30 @@ export async function handleHabitCallback(env: Env, session: Session, cq: Telegr
       return true;
     }
 
+    if (action === 'h_del_all') {
+      const count = (await getActiveHabits(env.DB, userId)).length;
+      await answerCallbackQuery(env, cq.id);
+      if (count === 0) {
+        await editOrSend(env, chatId, cq.message?.message_id, "Sizda faol odatlar yo'q.", undefined);
+        return true;
+      }
+      await editOrSend(env, chatId, cq.message?.message_id,
+        `⚠️ *Barcha odatlarni o'chirish*\n\nFaol *${count} ta* odatning hammasi o'chiriladi.\n_Statistika va kunlik natijalar saqlanib qoladi._\n\nRostdan ham hammasini o'chirmoqchimisiz?`, {
+        inline_keyboard: [
+          [{ text: "✅ Ha, hammasini o'chirish", callback_data: 'h_del_all_confirm' }],
+          [{ text: "❌ Bekor qilish", callback_data: 'h_manage_back' }]
+        ]
+      });
+      return true;
+    }
+
+    if (action === 'h_del_all_confirm') {
+      const deleted = await deactivateAllHabits(env.DB, userId);
+      await answerCallbackQuery(env, cq.id, "O'chirildi");
+      await editOrSend(env, chatId, cq.message?.message_id, `✅ ${deleted} ta odat o'chirildi.\n\n➕ *Yangi odat* tugmasi orqali yangilarini qo'shishingiz mumkin.`, undefined);
+      return true;
+    }
+
     if (action === 'h_del') {
       const habitId = parseInt(parts[1], 10);
       await sendMessage(env, chatId, "Rostdan ham bu odatni o'chirmoqchimisiz?", {
@@ -580,6 +604,7 @@ async function showHabitManagement(env: Env, chatId: number, userId: number, mes
     text: `${h.name} · ${formatSchedule(h.schedule_days)}${h.reminder_time ? ' · ' + h.reminder_time : ''}`,
     callback_data: `h_edit:${h.id}`
   }]);
+  keyboard.push([{ text: "🗑 Hammasini o'chirish", callback_data: 'h_del_all' }]);
 
   await editOrSend(env, chatId, messageId, text, { inline_keyboard: keyboard });
 }
