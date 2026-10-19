@@ -4,7 +4,10 @@ import { appendHabitNote, getHabitOwnedBy } from './db';
 
 // Habits whose name contains one of these words (case-insensitive) ask for a result/comment
 // after being marked "done". Edit this list to change which habits are asked.
-export const NOTE_HABIT_KEYWORDS = ['reading', 'writing', 'listening', 'speaking', 'vocabulary', 'youtube'];
+export const NOTE_HABIT_KEYWORDS = [
+  'reading', 'writing', 'listening', 'speaking', 'vocabulary', 'youtube',
+  'ielts', 'pomodoro', 'mock', 'win', 'sport', 'namoz', 'ekran'
+];
 
 export const NOTE_TTL_MS = 30 * 60 * 1000;  // pending question expires after 30 minutes
 export const NOTE_MAX_LENGTH = 1000;

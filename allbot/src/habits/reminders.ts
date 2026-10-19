@@ -134,18 +134,9 @@ async function sendEveningMessages(env: Env, currentDate: string): Promise<void>
       text += `Bugungi barcha vazifalarni a'lo darajada bajarganingiz bilan tabriklayman! 🎉\n\n`;
     }
 
-    // If AI is enabled, append personal AI daily analysis
-    if (user.ai_enabled) {
-      try {
-        const userContext = await buildFullUserContext(env, user.user_id, user.first_name || 'Do\'stim');
-        const aiComment = await generateDailyAnalysis(env.OPENROUTER_API_KEY, user.first_name || 'Do\'stim', userContext);
-        if (aiComment) {
-          text += `🤖 *AI Yordamchi sharhi:*\n${aiComment}\n`;
-        }
-      } catch (err) {
-        console.error('Evening AI comment error:', err);
-      }
-    }
+    text += `🛡️ *70% Qoidasi & Intizom:*\n`;
+    text += `Bugun nima bo'lganidan qat'i nazar, "Never miss twice" qoidasini unutmang. `;
+    text += `Telefonni boshqa xonada qoldiring va erta uxlab, ertangi kunni Bomdod namozi va ertalabki Pomodoro bilan yangi g'alaba sifatida boshlang! 🚀\n`;
     
     await sendMessage(env, user.user_id, text);
     await markEveningMessageSent(env.DB, user.user_id, currentDate);

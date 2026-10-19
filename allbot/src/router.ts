@@ -11,6 +11,9 @@ import { setChannelId, setChannelReportEnabled, resetAllUserStats } from './habi
 import { sendChannelReport } from './habits/channel_report';
 import { settingsKb, settingsText, vocabMenu, backMenu } from './vocab/handlers';
 import { getAwaitingNote, isNoteExpired, handleNoteInput } from './habits/notes';
+import { getSosMessage, getSosRecoveredText } from './habits/sos';
+import { getIeltsPlanMessage } from './habits/ielts_plan';
+import { setupPhase1Habits } from './habits/templates';
 
 // Reply-keyboard buttons (main menu + vocab menus) and commands: these cancel a pending habit note
 const NAV_BUTTONS = new Set(
@@ -76,12 +79,14 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
     await registerUser(env.DB, uid, firstName || "Do'stim");
 
     const welcomeText =
-      `\ud83d\udc4b Salom, *${esc(firstName || "Do'stim")}*!\n\n` +
-      `\ud83c\udfaf *AllBot \u2014 Yagona intizom, odat va lug'at botingiz!*\n\n` +
-      `\ud83d\udccb *Odatlar* \u2014 kunlik vazifalarni kuzating\n` +
-      `\ud83d\udcda *Lug'at* \u2014 Leitner tizimi bilan so'z yodlang\n` +
-      `\ud83e\udd16 *AI yordamchi* \u2014 shaxsiy tahlil va maslahat\n\n` +
-      `\u2b07\ufe0f Quyidagi menyu orqali boshlang!`;
+      `👋 Salom, *${esc(firstName || "Do'stim")}*!\n\n` +
+      `🎯 *AllBot — IELTS 8.0 & Intizom Botingiz!*\n\n` +
+      `📋 *Odatlar* — kunlik vazifalar va Pomodoro bloklari\n` +
+      `📚 *Lug'at* — Leitner tizimi bilan so'z yodlang\n` +
+      `🎯 *IELTS Reja* — 10 haftalik aniq yo'l xaritasi\n` +
+      `🚨 *SOS Yordam* — Urge surfing va anti-prokrastinatsiya\n\n` +
+      `💡 _Tezkor start: /faza1 buyrug'i orqali 6 ta poydevor odatini avtomatik o'rnating!_\n\n` +
+      `⬇️ Quyidagi menyu orqali boshlang!`;
 
     await sendMessage(env, chatId, welcomeText, { replyMarkup: mainMenu() });
     return;
@@ -91,7 +96,52 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
   if (text.includes('Asosiy menyu')) {
     session.userState = null;
     session.quizState = null;
-    await sendMessage(env, chatId, '\ud83c\udfe0 *Asosiy menyu*', { replyMarkup: mainMenu() });
+    await sendMessage(env, chatId, '🏠 *Asosiy menyu*', { replyMarkup: mainMenu() });
+    return;
+  }
+
+  // 🎯 IELTS Reja
+  if (text === '/reja' || text === '/ielts' || text.includes('IELTS Reja')) {
+    session.userState = null;
+    session.quizState = null;
+    const { text: planText, replyMarkup } = getIeltsPlanMessage();
+    await sendMessage(env, chatId, planText, { replyMarkup });
+    return;
+  }
+
+  // 🚨 SOS Yordam (Urge surfing & Favqulodda protokol)
+  if (text === '/sos' || text === '/yordam' || text.includes('SOS')) {
+    session.userState = null;
+    session.quizState = null;
+    const { text: sosText, replyMarkup } = getSosMessage();
+    await sendMessage(env, chatId, sosText, { replyMarkup });
+    return;
+  }
+
+  // ⚡ /faza1 — avtomatik o'rnatish
+  if (text === '/faza1' || text === '/setup' || text === '/ielts_setup') {
+    session.userState = null;
+    session.quizState = null;
+    const kb = {
+      inline_keyboard: [
+        [
+          { text: "✅ Ha, Faza 1 ni o'rnatish", callback_data: "faza1_confirm" },
+          { text: "❌ Bekor qilish", callback_data: "faza1_cancel" }
+        ]
+      ]
+    };
+    const confirmText =
+      `⚡ *Faza 1 odatlarini o'rnatish*\n\n` +
+      `Ushbu amal barcha faol odatlaringizni Faza 1 (Poydevor) ning 6 ta asosiy odatiga almashtiradi:\n\n` +
+      `1. 🌅 Erta turish & Bomdod (05:30)\n` +
+      `2. 🏃 Ertalabki harakat (05:45)\n` +
+      `3. 🍅 IELTS Pomodoro 1-2 (07:00)\n` +
+      `4. 🍅 IELTS Pomodoro 3-4 (08:20)\n` +
+      `5. 🕌 Xufton namozi (20:00)\n` +
+      `6. 📱 Ekran off & Kunlik WIN (21:30)\n\n` +
+      `_Eski odatlar o'chirilib, yangi 6 ta poydevor odati joylashtiriladi._\n\n` +
+      `O'rnatishni tasdiqlaysizmi?`;
+    await sendMessage(env, chatId, confirmText, { replyMarkup: kb });
     return;
   }
 
@@ -119,7 +169,11 @@ async function handleMessage(env: Env, session: Session, msg: TelegramMessage): 
   if (text.includes('AI yordamchi')) {
     session.userState = null;
     session.quizState = null;
-    await showAiMenu(env, chatId, uid);
+    const aiNotice =
+      `🤖 *Gemini AI Yordamchi*\n\n` +
+      `IELTS 8.0 ga tayyorgarlik bo'yicha barcha tahlillar, Writing insholarini tekshirish va erkin savol-javoblarni bevosita telefoningizdagi **Gemini ilovasi** orqali amalga oshirishingiz tavsiya etiladi.\n\n` +
+      `AllBot esa sizning intizomingiz, 6 ta poydevor odatingiz, streak va so'z boyligingizni qat'iy nazorat qiladi! 🚀`;
+    await sendMessage(env, chatId, aiNotice, { replyMarkup: mainMenu() });
     return;
   }
 
@@ -388,6 +442,80 @@ async function handleCallback(env: Env, session: Session, cq: TelegramCallbackQu
     return;
   }
 
+  if (data === 'sos_recovered') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id, "Barakalla! 💪");
+    if (cq.message?.message_id) {
+      await editMessageText(env, uid, cq.message.message_id, getSosRecoveredText(), {
+        replyMarkup: { inline_keyboard: [[{ text: "📋 Bugungi vazifalar", callback_data: "h_back" }]] }
+      });
+    }
+    return;
+  }
+
+  if (data === 'faza1_confirm_prompt') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id);
+    const kb = {
+      inline_keyboard: [
+        [
+          { text: "✅ Ha, Faza 1 ni o'rnatish", callback_data: "faza1_confirm" },
+          { text: "❌ Bekor qilish", callback_data: "faza1_cancel" }
+        ]
+      ]
+    };
+    const confirmText =
+      `⚡ *Faza 1 odatlarini o'rnatish*\n\n` +
+      `Faol odatlaringiz Faza 1 (Poydevor) ning 6 ta asosiy odatiga almashtiriladi:\n\n` +
+      `1. 🌅 Erta turish & Bomdod (05:30)\n` +
+      `2. 🏃 Ertalabki harakat (05:45)\n` +
+      `3. 🍅 IELTS Pomodoro 1-2 (07:00)\n` +
+      `4. 🍅 IELTS Pomodoro 3-4 (08:20)\n` +
+      `5. 🕌 Xufton namozi (20:00)\n` +
+      `6. 📱 Ekran off & Kunlik WIN (21:30)\n\n` +
+      `O'rnatishni tasdiqlaysizmi?`;
+    if (cq.message?.message_id) {
+      await editMessageText(env, uid, cq.message.message_id, confirmText, { replyMarkup: kb });
+    } else {
+      await sendMessage(env, uid, confirmText, { replyMarkup: kb });
+    }
+    return;
+  }
+
+  if (data === 'faza1_confirm') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id, "O'rnatilmoqda...");
+    const { added, replaced } = await setupPhase1Habits(env.DB, uid, true);
+    const successText =
+      `✅ *Faza 1 odatlari muvaffaqiyatli o'rnatildi!*\n\n` +
+      `Eski ${replaced} ta odat o'rniga ${added} ta poydevor odati faollashtirildi.\n\n` +
+      `📋 *Bugungi vazifalar* menyusidan yangi rejangizni ko'rishingiz mumkin.\n\n` +
+      `🎯 _Eslatma: Har doim "70% qoidasi"ga amal qiling. Eng yomon kunda ham 2 daqiqalik minimum bajaring!_`;
+    if (cq.message?.message_id) {
+      await editMessageText(env, uid, cq.message.message_id, successText, {
+        replyMarkup: { inline_keyboard: [[{ text: "📋 Bugungi vazifalar", callback_data: "h_back" }]] }
+      });
+    } else {
+      await sendMessage(env, uid, successText);
+    }
+    return;
+  }
+
+  if (data === 'faza1_cancel') {
+    const uid = cq.message?.chat.id;
+    if (!uid) return;
+    await answerCallbackQuery(env, cq.id, "Bekor qilindi");
+    if (cq.message?.message_id) {
+      await editMessageText(env, uid, cq.message.message_id, "O'rnatish bekor qilindi.", {
+        replyMarkup: { inline_keyboard: [[{ text: "📋 Bugungi vazifalar", callback_data: "h_back" }]] }
+      });
+    }
+    return;
+  }
+
   if (data === 'settings_vocab') {
     const uid = cq.message?.chat.id;
     if (!uid) return;
@@ -443,7 +571,6 @@ async function showSettings(env: Env, chatId: number, userId: number, messageId?
   const text =
     `⚙️ *Sozlamalar*\n\n` +
     `📢 Eslatmalar: ${notifyStatus}\n` +
-    `🤖 AI yordamchi: ${aiStatus}\n` +
     `📡 Hisobot kanali (22:00): ${channelStatus}\n` +
     `🕒 Vaqt mintaqasi: UTC${user?.timezone || '+05:00'}`;
 
@@ -451,7 +578,7 @@ async function showSettings(env: Env, chatId: number, userId: number, messageId?
     inline_keyboard: [
       [
         { text: user?.notify ? "🔕 Eslatmalarni o'chirish" : '🔔 Eslatmalarni yoqish', callback_data: 'ai_toggle_notify' },
-        { text: user?.ai_enabled ? "🤖 AI o'chirish" : '🤖 AI yoqish', callback_data: 'ai_toggle' }
+        { text: "⚡ Faza 1 odatlari", callback_data: 'faza1_confirm_prompt' }
       ],
       [
         { text: "📡 Hisobot kanali sozlamalari", callback_data: 'settings_channel' }

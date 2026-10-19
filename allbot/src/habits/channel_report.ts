@@ -140,8 +140,10 @@ O'zbek tilida yoz. Oddiy matn formatida javob ber, ortiqcha belgilarsiz.`;
   }
 
   if (aiComment) {
-    text += `🤖 <b>Kun xulosasi (AI):</b>\n`;
+    text += `🤖 <b>Kun xulosasi:</b>\n`;
     text += `<i>"${formatAiMarkdownToHtml(aiComment)}"</i>\n\n`;
+  } else {
+    text += `💡 <i>"Muvaffaqiyat — bu har kuni takrorlanadigan kichik intizom natijasi. 70% bajarilgan ish — 0% dan cheksiz marta yaxshi!"</i>\n\n`;
   }
 
   text += `#kunlik_hisobot #intizom #development #natija`;
