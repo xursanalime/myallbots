@@ -37,7 +37,7 @@ export async function boxMenu(env: Env, uid: number): Promise<any> {
   return replyKeyboard([
     [labels[0], labels[1]],
     [labels[2], labels[3]],
-    [labels[4], "\u{1F4DD} Test (Yangi)"],
+    [labels[4], "\u270D\uFE0F Writing (Yangi)"],
     ["\u{1F519} Orqaga"]
   ]);
 }
@@ -145,7 +145,7 @@ export async function settingsKb(env: Env, uid: number): Promise<any> {
   return inlineKeyboard([
     [notifyBtn, { text: "\u{1F4CB} So'zlarim", callback_data: "settings_words" }],
     [
-      { text: "\u{1F4DD} Barcha so'zlar", callback_data: "settings_all_test" },
+      { text: "\u270D\uFE0F Barcha so'zlar (Writing)", callback_data: "settings_all_test" },
       { text: "\u{1F50D} Qidirish", callback_data: "settings_search" }
     ],
     [
@@ -183,10 +183,40 @@ export async function startAllTest(env: Env, session: Session, uid: number, chat
   await sendMessage(
     env,
     chatId,
-    `\u270D\uFE0F *Barcha So'zlar \u2014 Test*\n\n\u{1F4DA} Jami: *${words.length} ta* so'z\n\u{1F4DD} _O'zbekchasi beriladi \u2014 4 ta variantdan to'g'risini tanlang. Xato bo'lsa so'z Quti 1 ga qaytadi._\n\u{1F4AA} Muvaffaqiyat!`,
+    `\u270D\uFE0F *Barcha So'zlar \u2014 Writing Mashqi*\n\n\u{1F4DA} Jami: *${words.length} ta* so'z\n\u{1F4DD} _O'zbekchasi beriladi \u2014 siz inglizcha tarjimasini yozasiz. Xato bo'lsa so'z Quti 1 ga qaytadi._\n\u{1F4AA} Muvaffaqiyat!`,
     { replyMarkup: backMenu() }
   );
   await askQ(env, session, uid, chatId);
+}
+
+export function isCorrectAnswer(userInput: string, targetEng: string): boolean {
+  const clean = (s: string) =>
+    s.trim().toLowerCase()
+     .replace(/^(to\s+)/, '') // allow infinitive "to " (e.g. "to go" -> "go")
+     .replace(/^(a\s+|an\s+|the\s+)/, '') // allow articles
+     .replace(/[.,!?;:'"()]+$/g, '')
+     .replace(/\s+/g, ' ')
+     .trim();
+
+  const rawUser = userInput.trim().toLowerCase();
+  const cleanUser = clean(userInput);
+
+  if (!rawUser && !cleanUser) return false;
+
+  const synonyms = parseSynonyms(targetEng);
+  if (synonyms.length === 0 && targetEng) {
+    synonyms.push(targetEng);
+  }
+
+  for (const syn of synonyms) {
+    const rawSyn = syn.trim().toLowerCase();
+    const cleanSyn = clean(syn);
+    if (rawUser === rawSyn || (cleanUser && cleanUser === cleanSyn)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export async function askQuiz(env: Env, session: Session, uid: number, chatId: number): Promise<void> {
@@ -198,21 +228,7 @@ export async function askQuiz(env: Env, session: Session, uid: number, chatId: n
   }
   const [wid, uz, eng] = quiz.words[quiz.index];
   const correctText = parseSynonyms(eng)[0] || eng;
-  const allWords = await getAllWords(env.DB, uid);
-  const pool: string[] = [];
-  const seen = new Set([correctText.toLowerCase()]);
-  for (const w of shuffle(allWords)) {
-    if (w.id === wid) continue;
-    const t = parseSynonyms(w.eng)[0];
-    if (!t) continue;
-    const key = t.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    pool.push(t);
-    if (pool.length >= 3) break;
-  }
-  const options = shuffle([correctText, ...pool]);
-  quiz.currentOptions = options;
+  quiz.currentOptions = null;
   quiz.currentCorrect = correctText;
   quiz.currentWid = wid;
   quiz.currentUz = uz;
@@ -220,9 +236,10 @@ export async function askQuiz(env: Env, session: Session, uid: number, chatId: n
   const total = quiz.words.length;
   const curI = quiz.index + 1;
   const pct = Math.floor(quiz.index / total * 100);
-  const text = `*${curI}/${total}*  \`[${bar(quiz.index, total)}]\`  ${pct}%\n\n\u{1F1FA}\u{1F1FF} *${esc(uz.toUpperCase())}*\n\n\u2753 To'g'ri tarjimani tanlang:`;
-  const kbRows = options.map((opt, i) => [{ text: opt, callback_data: `qz_${i}` }]);
-  kbRows.push([{ text: "\u{1F50A} Talaffuzni eshitish", callback_data: "say_q" }]);
+  const text = `*${curI}/${total}*  \`[${bar(quiz.index, total)}]\`  ${pct}%\n\n\u{1F1FA}\u{1F1FF} *${esc(uz.toUpperCase())}*\n\n\u270D\uFE0F *Inglizcha tarjimasini yozing:*`;
+  const kbRows = [
+    [{ text: "\u23ED O'tkazish (Bilmayman)", callback_data: "qz_skip" }]
+  ];
   await sendMessage(env, chatId, text, { replyMarkup: inlineKeyboard(kbRows) });
 }
 
@@ -242,7 +259,7 @@ export async function finish(env: Env, session: Session, uid: number, chatId: nu
   await sendMessage(
     env,
     chatId,
-    `\u{1F3C1} *Test Yakunlandi!*\n\n\u{1F4CA} \`[${bar(correct, total)}]\` *${pct}%*\n\n\u2705 To'g'ri: *${correct}* ta\n\u274C Xato:   *${wrong.length}* ta\n\u{1F4DD} Jami:   *${total}* ta\n\n${rating}`,
+    `\u{1F3C1} *Writing Mashqi Yakunlandi!*\n\n\u{1F4CA} \`[${bar(correct, total)}]\` *${pct}%*\n\n\u2705 To'g'ri: *${correct}* ta\n\u274C Xato:   *${wrong.length}* ta\n\u{1F4DD} Jami:   *${total}* ta\n\n${rating}`,
     { replyMarkup: vocabMenu() }
   );
   await onTestFinished(env, uid, chatId, pct, total);
@@ -331,7 +348,7 @@ export async function handleVocabMessage(env: Env, session: Session, msg: Telegr
     await onWordAdded(env, uid, chatId, added);
     return true;
   }
-  if (text === "\u{1F4DD} Test (Yangi)") {
+  if (text === "\u{1F4DD} Test (Yangi)" || text === "\u270D\uFE0F Writing (Yangi)" || text.includes("Writing (Yangi)") || text.includes("Test (Yangi)")) {
     const words = await wordsNew(env.DB, uid);
     if (words.length === 0) {
       await sendMessage(env, chatId, "\u{1F4ED} *Yangi so'zlar yo'q!*\n\n\u{1F4A1} *\u2795 So'z qo'shish* orqali yangi so'zlar qo'shing.", {
@@ -347,7 +364,7 @@ export async function handleVocabMessage(env: Env, session: Session, msg: Telegr
       wrong: [],
       mode: "new"
     };
-    await sendMessage(env, chatId, `\u{1F3AF} *Test Boshlandi!*\n\n\u{1F4DA} Jami: *${words.length} ta* yangi so'z\n\u{1F4AA} Muvaffaqiyat!`, { replyMarkup: backMenu() });
+    await sendMessage(env, chatId, `\u270D\uFE0F *Writing Mashqi Boshlandi!*\n\n\u{1F4DA} Jami: *${words.length} ta* yangi so'z\n\u{1F4DD} _O'zbekchasi beriladi \u2014 siz inglizcha tarjimasini yozasiz._\n\u{1F4AA} Muvaffaqiyat!`, { replyMarkup: backMenu() });
     await askQ(env, session, uid, chatId);
     return true;
   }
@@ -366,7 +383,7 @@ export async function handleVocabMessage(env: Env, session: Session, msg: Telegr
         await sendMessage(
           env,
           chatId,
-          "\u{1F4ED} *Takrorlanadigan so'z yo'q.*\n\n\u{1F4A1} Avval *\u{1F4DD} Test (Yangi)* ni ishlatib so'zlarni qutilariga joylashtiring!",
+          "\u{1F4ED} *Takrorlanadigan so'z yo'q.*\n\n\u{1F4A1} Avval *\u270D\uFE0F Writing (Yangi)* ni ishlatib so'zlarni qutilariga joylashtiring!",
           { replyMarkup: await boxMenu(env, uid) }
         );
       }
@@ -405,7 +422,7 @@ export async function handleVocabMessage(env: Env, session: Session, msg: Telegr
       mode: `box_${box}`,
       box
     };
-    await sendMessage(env, chatId, `\u{1F4E6} *Quti ${box} \u2014 Test*\n\n\u{1F4DA} Jami: *${words.length} ta* so'z\n\u{1F4AA} Davom eting!`, { replyMarkup: backMenu() });
+    await sendMessage(env, chatId, `\u{1F4E6} *Quti ${box} \u2014 Writing Mashqi*\n\n\u{1F4DA} Jami: *${words.length} ta* so'z\n\u{1F4DD} _O'zbekchasi beriladi \u2014 siz inglizcha tarjimasini yozasiz._\n\u{1F4AA} Davom eting!`, { replyMarkup: backMenu() });
     await askQ(env, session, uid, chatId);
     return true;
   }
@@ -497,7 +514,49 @@ export async function handleVocabMessage(env: Env, session: Session, msg: Telegr
     return true;
   }
   if (session.quizState) {
-    await sendMessage(env, chatId, "\u2753 Iltimos, yuqoridagi tugmalardan birini tanlang.");
+    const quiz = session.quizState;
+    const wid = quiz.currentWid;
+    const uz = quiz.currentUz ?? "";
+    const eng = quiz.currentEng ?? "";
+
+    if (!wid || !eng) {
+      quiz.index += 1;
+      await askQ(env, session, uid, chatId);
+      return true;
+    }
+
+    const synonyms = parseSynonyms(eng);
+    const displayEng = synonyms.length > 0 ? synonyms.join(", ") : eng;
+    const isCorrect = isCorrectAnswer(text, eng);
+
+    if (isCorrect) {
+      quiz.correct += 1;
+      const w = await getWordById(env.DB, uid, wid);
+      const oldBox = w ? w.box : 0;
+      const newBox = Math.min(oldBox + 1, 5);
+      await updateBox(env.DB, uid, wid, newBox);
+      const boxTxt = newBox === 5 ? "\u{1F3C6} *So'z yakunlandi!* Quti 5 ga yetdi!" : `\u{1F4E6} Quti ${oldBox} \u2192 ${newBox}`;
+
+      const replyText = `\u2705 *To'g'ri!*\n\n\u{1F1FA}\u{1F1FF} *${esc(uz.toUpperCase())}* \u2192 \u{1F1EC}\u{1F1E7} *${esc(displayEng)}*\n\n${boxTxt}`;
+      const kb = [[{ text: "\u{1F50A} Talaffuzni eshitish", callback_data: `say_w:${wid}` }]];
+      await sendMessage(env, chatId, replyText, { replyMarkup: inlineKeyboard(kb) });
+      await onCorrectAnswer(env, uid, chatId, oldBox < 5 && newBox === 5);
+    } else {
+      quiz.wrong.push([uz, eng]);
+      await updateBox(env.DB, uid, wid, 1);
+
+      const replyText = `\u274C *Xato!*\n\nSiz yozdingiz: _${esc(text.trim())}_\n\u2714\uFE0F To'g'ri javob: *${esc(displayEng)}*\n\n\u{1F1FA}\u{1F1FF} *${esc(uz.toUpperCase())}* \u2192 \u{1F1EC}\u{1F1E7} *${esc(displayEng)}*\n\u{1F4E6} \u2192 Quti 1 ga qaytarildi`;
+      const kb = [[{ text: "\u{1F50A} Talaffuzni eshitish", callback_data: `say_w:${wid}` }]];
+      await sendMessage(env, chatId, replyText, { replyMarkup: inlineKeyboard(kb) });
+    }
+
+    quiz.index += 1;
+    quiz.currentOptions = null;
+    quiz.currentCorrect = null;
+    quiz.currentWid = null;
+    quiz.currentUz = null;
+    quiz.currentEng = null;
+    await askQ(env, session, uid, chatId);
     return true;
   }
   
@@ -518,6 +577,62 @@ export async function handleVocabCallback(env: Env, session: Session, cq: Telegr
   const data = cq.data ?? "";
   const callbackId = cq.id;
   
+  if (data.startsWith("say_w:")) {
+    const wid = parseInt(data.split(":")[1], 10);
+    const word = await getWordById(env.DB, uid, wid);
+    if (!word) {
+      await answerCallbackQuery(env, callbackId, "So'z topilmadi.");
+      return true;
+    }
+    const firstEng = parseSynonyms(word.eng)[0] || word.eng;
+    await answerCallbackQuery(env, callbackId, "\u{1F50A} Yuklanmoqda...");
+    const audio = await fetchPronunciation(firstEng);
+    const sent = audio ? await sendAudio(env, chatId, audio, firstEng) : null;
+    if (!sent?.ok) {
+      await sendMessage(env, chatId, "\u26A0\uFE0F Talaffuzni hozir yuklab bo'lmadi. Keyinroq urinib ko'ring.", { parseMode: null });
+    }
+    return true;
+  }
+
+  if (data === "qz_skip") {
+    const quiz = session.quizState;
+    if (!quiz || !quiz.currentWid) {
+      await answerCallbackQuery(env, callbackId, "Test tugagan yoki eskirgan.");
+      return true;
+    }
+    const wid = quiz.currentWid;
+    const uz = quiz.currentUz ?? "";
+    const eng = quiz.currentEng ?? "";
+    const synonyms = parseSynonyms(eng);
+    const displayEng = synonyms.length > 0 ? synonyms.join(", ") : eng;
+
+    quiz.wrong.push([uz, eng]);
+    await updateBox(env.DB, uid, wid, 1);
+    await answerCallbackQuery(env, callbackId, "O'tkazib yuborildi");
+
+    const replyText = `\u23ED *O'tkazildi!*\n\n\u2714\uFE0F To'g'ri javob: *${esc(displayEng)}*\n\n\u{1F1FA}\u{1F1FF} *${esc(uz.toUpperCase())}* \u2192 \u{1F1EC}\u{1F1E7} *${esc(displayEng)}*\n\u{1F4E6} \u2192 Quti 1 ga qaytarildi`;
+    const kb = [[{ text: "\u{1F50A} Talaffuzni eshitish", callback_data: `say_w:${wid}` }]];
+
+    if (messageId) {
+      try {
+        await editMessageText(env, chatId, messageId, replyText, { replyMarkup: inlineKeyboard(kb) });
+      } catch {
+        await sendMessage(env, chatId, replyText, { replyMarkup: inlineKeyboard(kb) });
+      }
+    } else {
+      await sendMessage(env, chatId, replyText, { replyMarkup: inlineKeyboard(kb) });
+    }
+
+    quiz.index += 1;
+    quiz.currentOptions = null;
+    quiz.currentCorrect = null;
+    quiz.currentWid = null;
+    quiz.currentUz = null;
+    quiz.currentEng = null;
+    await askQ(env, session, uid, chatId);
+    return true;
+  }
+
   if (data === "say_q") {
     const word = session.quizState?.currentCorrect;
     if (!word) {

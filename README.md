@@ -36,11 +36,11 @@
 ### 📚 Lug'at moduli (BrainBridge)
 - **Leitner tizimi**: 5 qutili Spaced Repetition algoritmi
   - Quti 1: 4 soat, Quti 2: 24 soat, Quti 3: 72 soat, Quti 4: 7 kun, Quti 5: 14 kun
-- Multiple choice test (4 variant)
+- **Writing mashqi**: Bot o'zbekcha so'zni chiqaradi, foydalanuvchi inglizcha tarjimasini yozadi (sinonimlarni ham to'g'ri qabul qiladi)
 - **Gamifikatsiya**: XP, darajalar, nishonlar (badges), reyting jadvali
 - Sinonimlar qo'llab-quvvatlash: `allow, permit, let = ruxsat`
 - So'z qidirish
-- Test savolida "🔊 Talaffuzni eshitish" tugmasi: to'g'ri javobning inglizcha talaffuzi audio (mp3) ko'rinishida yuboriladi
+- "🔊 Talaffuzni eshitish" tugmasi: to'g'ri javobning inglizcha talaffuzi audio (mp3) ko'rinishida yuboriladi
 - Haftalik xulosa va re-engagement eslatmalari
 
 ### 🤖 AI Yordamchi

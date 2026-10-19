@@ -18,7 +18,7 @@ const NAV_BUTTONS = new Set(
 );
 function isNavigationInput(text: string): boolean {
   return text.startsWith('/') || NAV_BUTTONS.has(text) || text.includes('Asosiy menyu') ||
-    /^\u{1F4E6} Quti \d/u.test(text) || text.startsWith('\u{1F4DD} Test');
+    /^\u{1F4E6} Quti \d/u.test(text) || text.startsWith('\u{1F4DD} Test') || text.includes('Writing');
 }
 
 function extractChatId(update: TelegramUpdate): number | null {

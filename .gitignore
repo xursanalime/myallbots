@@ -1,0 +1,9 @@
+node_modules/
+allbot/node_modules/
+dist/
+allbot/dist/
+.wrangler/
+allbot/.wrangler/
+.env
+*.log
+.DS_Store
