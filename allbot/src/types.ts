@@ -39,6 +39,7 @@ export interface QuizState {
   wrong: [string, string][];  // [uz, eng]
   mode: string;  // 'new' | 'all' | 'box_N'
   box?: number;
+  direction?: 'uz_eng' | 'eng_uz';
   currentOptions?: string[] | null;
   currentCorrect?: string | null;
   currentWid?: number | null;
